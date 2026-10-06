@@ -18,20 +18,19 @@ Homebrew가 없다면 먼저 설치한다 (설치 중 맥 비밀번호를 물어
 설치가 끝나면 화면 마지막에 나오는 `echo ... >> ~/.zprofile` 두 줄을 그대로 실행한 뒤:
 
 ```bash
-brew install git node uv gh
+brew install git node uv
 ```
 
 ## 2. 코드 받기
 
-GitHub에 로그인 (브라우저가 열리면 승인):
+저장소가 공개 상태라 로그인 없이 받을 수 있다:
 
 ```bash
-gh auth login
+cd ~ && git clone https://github.com/kjd1374/viet.git && cd viet
 ```
 
-```bash
-cd ~ && gh repo clone kjd1374/viet && cd viet
-```
+`ls`를 쳐서 `CLAUDE.md`, `docs`, `factory`가 보이면 성공.
+(나중에 저장소를 비공개로 바꾸면 그때는 `brew install gh` → `gh auth login` → `gh repo clone kjd1374/viet` 로 받는다.)
 
 이미 받아 둔 경우 최신으로:
 
