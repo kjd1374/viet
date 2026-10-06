@@ -10,6 +10,9 @@ command -v git >/dev/null || { echo "git이 필요합니다:  xcode-select --ins
 
 echo "1/4 FASHN 착용 모델 코드 받기"
 [ -d vendor/fashn-vton-1.5 ] || git clone --depth 1 https://github.com/fashn-AI/fashn-vton-1.5.git vendor/fashn-vton-1.5
+# 맥 GPU(MPS)는 float64 미지원 → RoPE를 float32로 (patches/ 참고). 이미 적용돼 있으면 건너뜀
+git -C vendor/fashn-vton-1.5 apply --reverse --check ../../patches/fashn-vton-mps.patch 2>/dev/null \
+  || git -C vendor/fashn-vton-1.5 apply ../../patches/fashn-vton-mps.patch
 
 echo "2/4 파이썬 환경 만들기"
 uv venv --python 3.11 .venv
