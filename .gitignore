@@ -1,0 +1,15 @@
+node_modules
+dist
+*.tsbuildinfo
+e2e/.results
+playwright-report
+
+# 레이어 공장: 외부 코드·가중치·가상환경·생성물은 저장소에 넣지 않는다
+factory/vendor/
+factory/.venv/
+factory/weights/
+factory/hf-cache/
+factory/out/
+__pycache__/
+.env
+.claude/
