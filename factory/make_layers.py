@@ -79,6 +79,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="앞에서 N개만 (시험용)")
     ap.add_argument("--force", action="store_true", help="이미 만든 레이어도 다시 생성")
     ap.add_argument("--no-segmentation", action="store_true", help="옷 영역 분할 없이 색차만으로 잘라내기")
+    ap.add_argument("--orig-dilate", type=int, default=6,
+                    help="원래 옷 영역을 몇 px 넓혀서 가릴지. 원래 옷 테두리가 남으면 키우고, 주변 배경까지 번져 보이면 줄인다 (0=끔)")
     ap.add_argument("--publish", action="store_true", help="결과를 ../public/catalog 로 복사")
     args = ap.parse_args()
 
@@ -144,11 +146,13 @@ def main():
     save_png(base, out / "model.png")
 
     # 보호 영역(얼굴·머리 등): 고정 모델에서 한 번만 계산. out/protect.png 를 손으로 고쳐도 된다.
+    # base 분할: 보호 영역과 "원래 입고 있던 옷" 영역(테두리 잔존 방지)에 쓴다.
+    base_seg = None if args.no_segmentation else pipe.hp_model.predict(base)
     protect_path = out / "protect.png"
     if protect_path.exists() and not args.force:
         protect = (np.array(Image.open(protect_path).convert("L")) > 127).astype(np.uint8) * 255
     else:
-        seg = pipe.hp_model.predict(base)
+        seg = base_seg if base_seg is not None else pipe.hp_model.predict(base)
         protect = label_mask(seg, [LABELS_TO_IDS[l] for l in IDENTITY_LABELS if l in LABELS_TO_IDS])
         protect = cv2.erode(protect, np.ones((3, 3), np.uint8))  # 경계는 옷이 덮을 수 있게 살짝 안쪽만
         save_png(protect, protect_path)
@@ -159,7 +163,7 @@ def main():
     tf = open(timings_path, "a", newline="", encoding="utf-8")
     tw = csv.writer(tf)
     if new_file:
-        tw.writerow(["id", "category", "device", "steps", "tryon_sec", "extract_sec", "coverage", "outside_noise", "protected_changed"])
+        tw.writerow(["id", "category", "device", "steps", "tryon_sec", "extract_sec", "coverage", "outside_noise", "protected_changed", "covered_other"])
 
     products = []
     layers_for_preview: dict[str, np.ndarray] = {}
@@ -205,20 +209,25 @@ def main():
             save_png(tryon, out / "raw" / f"{pid}.png")
 
             t2 = time.perf_counter()
-            gmask = excl = skin = None
+            gmask = excl = skin = orig = None
             if not args.no_segmentation:
                 seg = pipe.hp_model.predict(tryon)
-                cov = CATEGORY_TO_BODY_COVERAGE[TO_FASHN[cat]]
-                gmask, excl, skin = segment_masks(seg, BODY_COVERAGE_TO_LABELS[cov], LABELS_TO_IDS)
-            layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect)
+                cov_labels = BODY_COVERAGE_TO_LABELS[CATEGORY_TO_BODY_COVERAGE[TO_FASHN[cat]]]
+                gmask, excl, skin = segment_masks(seg, cov_labels, LABELS_TO_IDS)
+                orig = label_mask(base_seg, [LABELS_TO_IDS[l] for l in cov_labels if l in LABELS_TO_IDS])
+            layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect,
+                                      orig_mask=orig, orig_dilate=args.orig_dilate)
             t_ext = time.perf_counter() - t2
             save_png(layer, layer_path)
-            tw.writerow([pid, cat, device, args.steps, f"{t_tryon:.1f}", f"{t_ext:.1f}", f"{st.coverage:.3f}", f"{st.outside_noise:.2f}", f"{st.protected_changed:.2f}"])
+            tw.writerow([pid, cat, device, args.steps, f"{t_tryon:.1f}", f"{t_ext:.1f}", f"{st.coverage:.3f}", f"{st.outside_noise:.2f}", f"{st.protected_changed:.2f}", f"{st.covered_other:.4f}"])
             tf.flush()
             log.info(
-                "[%d/%d] %s %s: 착용 %.1fs, 잘라내기 %.1fs, 덮는 면적 %.0f%%, 바깥 잡음 %.1f, 얼굴 변화 %.1f",
+                "[%d/%d] %s %s: 착용 %.1fs, 잘라내기 %.1fs, 덮는 면적 %.0f%%, 바깥 잡음 %.1f, 얼굴 변화 %.1f, 다른 옷 덮음 %.1f%%",
                 i, len(items), pid, cat, t_tryon, t_ext, st.coverage * 100, st.outside_noise, st.protected_changed,
+                st.covered_other * 100,
             )
+            if st.covered_other > 0.005:
+                log.warning("  %s: 새 옷이 원래 옷보다 작아 그 자리에 다른 옷(하의 등)이 그려졌습니다. 다른 하의와 조합하면 어색할 수 있음", pid)
 
         layers_for_preview[cat] = np.array(Image.open(layer_path).convert("RGBA"))
         products.append(

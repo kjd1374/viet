@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--ids", nargs="*")
     ap.add_argument("--no-segmentation", action="store_true")
+    ap.add_argument("--orig-dilate", type=int, default=6, help="원래 옷 영역을 몇 px 넓혀서 가릴지 (0=끔)")
     args = ap.parse_args()
     os.environ.setdefault("HF_HOME", str(HERE / "hf-cache"))
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -44,19 +45,23 @@ def main():
         from fashn_human_parser import BODY_COVERAGE_TO_LABELS, LABELS_TO_IDS, FashnHumanParser
 
         parser = FashnHumanParser(device="cpu")
+        base_seg = parser.predict(base)
 
     layers = {}
     for pid in ids:
         tryon = np.array(Image.open(out / "raw" / f"{pid}.png").convert("RGB"))
         c = category.get(pid)
-        gmask = excl = skin = None
+        gmask = excl = skin = orig = None
         if parser is not None and c:
             seg = parser.predict(tryon)
-            gmask, excl, skin = segment_masks(seg, BODY_COVERAGE_TO_LABELS[TO_COVERAGE[c]], LABELS_TO_IDS)
-        layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect)
+            cov_labels = BODY_COVERAGE_TO_LABELS[TO_COVERAGE[c]]
+            gmask, excl, skin = segment_masks(seg, cov_labels, LABELS_TO_IDS)
+            orig = np.isin(base_seg, [LABELS_TO_IDS[l] for l in cov_labels if l in LABELS_TO_IDS]).astype(np.uint8) * 255
+        layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect,
+                                  orig_mask=orig, orig_dilate=args.orig_dilate)
         Image.fromarray(layer).save(out / "layers" / f"{pid}.png", optimize=True)
         layers[c or pid] = layer
-        print(f"{pid} ({c}): 덮는 면적 {st.coverage * 100:.0f}%, 바깥 잡음 {st.outside_noise:.1f}")
+        print(f"{pid} ({c}): 덮는 면적 {st.coverage * 100:.0f}%, 바깥 잡음 {st.outside_noise:.1f}, 다른 옷 덮음 {st.covered_other * 100:.1f}%")
 
     order = [k for k in ("bottom", "top", "dress", "outer") if k in layers]
     if order:

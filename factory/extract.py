@@ -21,6 +21,7 @@ class LayerStats:
     coverage: float  # 레이어가 덮는 화면 비율
     outside_noise: float  # 레이어 밖에서 base와 달라진 정도(평균 색차). 클수록 AI가 다른 곳도 바꿨다는 뜻
     protected_changed: float  # 보호 영역(얼굴·머리)에서의 평균 색차
+    covered_other: float = 0.0  # 원래 옷 자리를 덮으면서 다른 옷(예: 하의)까지 레이어에 들어간 화면 비율. 크면 조합 시 어색할 수 있음
 
 
 def _fill_holes(mask: np.ndarray) -> np.ndarray:
@@ -49,6 +50,8 @@ def extract_layer(
     exclude: np.ndarray | None = None,
     shadow_allowed: np.ndarray | None = None,
     protect: np.ndarray | None = None,
+    orig_mask: np.ndarray | None = None,
+    orig_dilate: int = 6,
     diff_thresh: float = 14.0,
     feather: float = 1.6,
     shadow_ring: int = 10,
@@ -61,6 +64,8 @@ def extract_layer(
              (예: 상의 밑단에 원래 모델의 청바지 허리띠가 묻어 나오는 것)
     shadow_allowed: 그림자를 남겨도 되는 영역(피부). 원래 옷이 다른 옷으로 바뀐 자리를 그림자로 오판하지 않게 한다.
     protect: 얼굴·머리 등 레이어에 절대 넣지 않을 영역(0/255)
+    orig_mask: base에서 원래 입고 있던 같은 종류 옷의 영역(0/255). orig_dilate px 넓혀서, 새 옷이 덮지 않는 부분은
+               착용 결과(AI가 그린 피부·배경)로 채운다 → 원래 옷이 새 옷 밖으로 비치거나 테두리로 남지 않는다.
     반환: HxWx4 uint8 RGBA, 품질 지표
     """
     assert base.shape == tryon.shape, "tryon을 base 크기로 맞춰야 합니다"
@@ -97,6 +102,18 @@ def extract_layer(
     if protect is not None:
         core = core & cv2.bitwise_not(protect)
 
+    # 원래 옷 가리기: 새 옷(core) 밖으로 남는 원래 옷 자리 + 몇 px 여유. 가장자리 처리는 core와 합친 영역 기준으로 한다.
+    garment = core
+    cover = np.zeros_like(core)
+    if orig_mask is not None and orig_mask.any():
+        o = orig_mask
+        if orig_dilate > 0:
+            o = cv2.dilate(o, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * orig_dilate + 1,) * 2))
+        cover = o & cv2.bitwise_not(core)
+        if protect is not None:
+            cover = cover & cv2.bitwise_not(protect)
+        core = core | cover
+
     # 옷: 가장자리를 "안쪽으로" 부드럽게 한다 (경계에서 0 → 안쪽 약 2σ에서 1).
     # 바깥으로 번지게 하면 착용 결과의 피부·원래 옷 색이 테두리로 묻어 나와, 다른 옷 위에 겹칠 때 띠가 보인다.
     if feather > 0:
@@ -105,14 +122,18 @@ def extract_layer(
         a_g = core.astype(np.float32) / 255.0
 
     # 가장자리 색 정리: 반투명 테두리의 색을 안쪽 옷 색으로 바꾼다 (정규화 블러로 안쪽 색만 바깥으로 번지게)
+    # 새 옷 가장자리 중 레이어 바깥과 맞닿은 곳만. 원래 옷 가린 자리(cover)는 AI가 그린 피부·배경 색을 그대로 둔다
+    # (여기에 옷 색을 번지게 하면 cover 바깥 테두리에 검은 선이 생긴다).
     r = max(1, int(np.ceil(2.5 * feather)))
-    inner = cv2.erode(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
+    kr = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    inner = cv2.erode(garment, kr)
     if inner.any():
         known = (inner > 0).astype(np.float32)
         num = cv2.GaussianBlur(tryon.astype(np.float32) * known[..., None], (0, 0), r)
         den = cv2.GaussianBlur(known, (0, 0), r)[..., None]
         inside_color = num / np.maximum(den, 1e-4)
-        band = ((a_g > 0) & (inner == 0) & (den[..., 0] > 0.02))[..., None]
+        outer_edge = cv2.erode(core, kr) == 0
+        band = ((a_g > 0) & (a_g < 0.98) & (garment > 0) & (inner == 0) & outer_edge & (den[..., 0] > 0.02))[..., None]
         tryon = np.where(band, np.clip(inside_color, 0, 255), tryon.astype(np.float32)).astype(np.uint8)
 
     # 그림자: 옷 주변 띠에서 base 대비 어두워진 비율만큼 "검은색 반투명".
@@ -138,10 +159,18 @@ def extract_layer(
     rgba = np.dstack([np.clip(rgb + 0.5, 0, 255).astype(np.uint8), (alpha * 255 + 0.5).astype(np.uint8)])
 
     outside = (cv2.dilate(core, k7) == 0) & ((protect == 0) if protect is not None else True)
+    other = cover > 0
+    if exclude is not None:
+        other &= exclude > 0
+        if shadow_allowed is not None:
+            other &= shadow_allowed == 0
+    else:
+        other[:] = False
     stats = LayerStats(
         coverage=float((alpha > 0.5).mean()),
         outside_noise=float(d[outside].mean()) if np.any(outside) else 0.0,
         protected_changed=float(d[protect > 0].mean()) if protect is not None and np.any(protect) else 0.0,
+        covered_other=float(other.mean()),
     )
     return rgba, stats
 

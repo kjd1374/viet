@@ -52,6 +52,8 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 | out/mac-test2 | CPU / float32 (MPS 실패 폴백) | 22.2s | 450s | mac-test와 동일 수준 |
 | out/mac-test3 | MPS / bfloat16 | 8.9s | 190s | 합성 결과는 엉망. 단, AI 생성 원본(raw/s01.png)은 CPU만큼 깨끗함 → 정밀도 문제 아님 |
 | out/mac-test4 | MPS / bfloat16, 정면 사진 person2 | 9.7s | 199s | 깔끔. 핑크 띠 같은 문제 없음. 소매 끝·밑단에 원래 옷(파랑) 얇은 테두리만 남음 |
+| out/mac-test5 | mac-test4 다시 잘라내기(--orig-dilate 6) | - | - | 파란 테두리 사라짐. 사용자 OK 기준 충족 |
+| out/mac-test3b | mac-test3 다시 잘라내기(--orig-dilate 6) | - | - | 허리 핑크 띠 사라짐. 그 자리는 AI가 그린 반바지 허리로 채워짐(다른 옷 덮음 0.6%) |
 
 - 세 테스트 모두 상의 1개, 덮는 면적 5%, 보호 영역 3%(face, hair, jewelry, bag, glasses, hat).
 - 테스트 모델 사진은 거울 셀카(폰을 든 손이 상체를 가림) — 최악 조건임.
@@ -64,7 +66,14 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 - 대책: 모델 사진 표준에서 "몸에 붙는 얇은 기본 옷"을 입히는 것 + 원래 옷 영역을 레이어에 포함하는 보정.
 - 비교 이미지: factory/out/compare/mac-test3-분석.jpg
 
-## 1순위 과제: mac-test3 품질 원인 파악 (위 분석으로 정밀도 원인은 배제됨)
+## 원래 옷 테두리 제거 (4-2, 완료 2026-10-06)
+- extract.py: base에서 원래 입던 같은 종류 옷 영역을 --orig-dilate px(기본 6) 넓혀, 새 옷이 안 덮는 부분은
+  AI 착용 결과(피부·배경)로 채움. 가장자리 색 정리는 새 옷의 바깥 테두리에만 적용(안 그러면 검은 선 생김).
+- make_layers.py / reextract.py 둘 다 --orig-dilate 옵션. 테두리 남으면 키우고, 배경이 번져 보이면 줄임.
+- "다른 옷 덮음 %" 로그: 새 옷이 원래 옷보다 작아 그 자리에 하의 등이 레이어에 들어간 비율. 0.5% 넘으면 경고.
+  이 경우 다른 하의와 조합하면 어색할 수 있음 → 모델은 몸에 붙는 얇은 기본 옷을 입고 촬영해야 근본 해결.
+
+## 1순위 과제: mac-test3 품질 원인 파악 (위 분석으로 정밀도 원인은 배제됨, 완료)
 - CPU float32는 깔끔했고 MPS bfloat16은 망가짐 → 먼저 정밀도를 의심.
 - MPS에서 float32 강제로 한 번 돌려 비교할 것 (메모리 압력 확인하면서). 깨끗하면 bfloat16이 원인.
 - float32로 메모리가 부족하면 float16 시도. bfloat16은 MPS에서 연산 정확도 문제가 있을 수 있음.
