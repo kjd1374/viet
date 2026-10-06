@@ -21,21 +21,23 @@
   - 가중치: factory/weights/model.safetensors
 - 포즈 인식: DWPose — factory/weights/dwpose
 - 인체 파싱: FashnHumanParser — Hugging Face fashn-ai/fashn-human-parser (실행 시 원격 확인 요청 발생)
-- 테스트 입력: factory/in-sample/person5.png, factory/in-sample/items.json
+- 테스트 입력: factory/in-sample/person2.png(정면, 주의 등급), items.json. person0~6은 FASHN 데모 사진
+- 포즈 검사: factory/pose_check.py (DWPose 키포인트). 촬영 가이드: docs/MODEL-PHOTO-GUIDE.md
 - 출력: factory/out/<폴더>/ (레이어, preview_composite.png, catalog.json)
 
 ## 실행 명령 (MPS)
 ```
 cd ~/viet/factory
 PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
-.venv/bin/python make_layers.py --model in-sample/person5.png --items in-sample/items.json \
+.venv/bin/python make_layers.py --model in-sample/person2.png --items in-sample/items.json \
 --out out/<새폴더> --steps 20 --limit 1
 ```
 - 두 환경변수는 필수. 없으면 맥이 메모리 부족으로 먹통이 된 후 재부팅됨(실제 발생).
 - HIGH만 1.4 미만으로 주면 "invalid low watermark ratio" 에러로 CPU 폴백됨 → 반드시 LOW를 HIGH보다 작게.
 - 이제 make_layers.py가 두 값을 자동 설정함(HIGH 0.7, LOW 0.5). 위처럼 직접 줘도 됨.
 - 정밀도: --dtype auto|fp32|bf16|fp16 (맥 기본 bf16). 폴백 시 traceback 전체가 로그에 남음.
-- 출력 폴더는 매번 새 이름으로(mac-test, mac-test2, mac-test3 사용됨).
+- 출력 폴더는 매번 새 이름으로(mac-test ~ mac-test5, mac-test3b 사용됨).
+- 생성 전에 모델 사진 포즈 검사. 불합격이면 종료(코드 2). 셀카(person5) 등으로 시험하려면 --skip-pose-check
 
 ## 이미 적용한 수정 (유지할 것)
 - factory/vendor/fashn-vton-1.5/src/fashn_vton/tryon_mmdit.py 35번째 줄 (RoPE):
@@ -72,6 +74,14 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 - make_layers.py / reextract.py 둘 다 --orig-dilate 옵션. 테두리 남으면 키우고, 배경이 번져 보이면 줄임.
 - "다른 옷 덮음 %" 로그: 새 옷이 원래 옷보다 작아 그 자리에 하의 등이 레이어에 들어간 비율. 0.5% 넘으면 경고.
   이 경우 다른 하의와 조합하면 어색할 수 있음 → 모델은 몸에 붙는 얇은 기본 옷을 입고 촬영해야 근본 해결.
+
+## 표준 모델 사진 검사 (4-3, 완료 2026-10-06)
+- pose_check.py: 불합격(생성 건너뜀) = 전신 아님, 앉음, 정면 아님(좌우 반전·어깨 기울기>10°·어깨너비/몸통<0.55·코 치우침), 두 눈 안 보임,
+  손목·팔꿈치·아래팔이 몸통 사각형(양 어깨·양 골반, 90% 축소) 안. 주의 = 팔 벌림<8°, 키 비율 70~95% 밖, 가운데 아님, 배경 편차>18.
+- 기준값은 데모 7장으로 맞춤: person2·6 주의, 나머지(셀카·앉은 사진) 불합격. 표준 사진이 모이면 재조정.
+- 결과는 out/pose-check/<이름>.jpg(관절 그림) + .json(키포인트). 4-4에서 키포인트 json 재사용 예정.
+- 가이드 핵심: 모델은 몸에 붙는 연회색 민소매+바이커 쇼츠(원래 옷 비침 방지), 머리 묶기, 액세서리 없음, 삼각대·배꼽 높이·3m·바닥 테이프.
+- 아직 표준 포즈 실제 사진 없음 → 사용자가 가이드대로 촬영 후 m01.png 등으로 넣어야 4-4 시험 가능.
 
 ## 1순위 과제: mac-test3 품질 원인 파악 (위 분석으로 정밀도 원인은 배제됨, 완료)
 - CPU float32는 깔끔했고 MPS bfloat16은 망가짐 → 먼저 정밀도를 의심.

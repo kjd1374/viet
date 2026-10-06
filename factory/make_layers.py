@@ -31,6 +31,7 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from extract import composite, extract_layer, segment_masks  # noqa: E402
+import pose_check  # noqa: E402
 
 # 앱 분류 → FASHN 분류. 아우터도 상반신 옷으로 입힌다.
 TO_FASHN = {"top": "tops", "outer": "tops", "bottom": "bottoms", "dress": "one-pieces"}
@@ -82,6 +83,8 @@ def main():
     ap.add_argument("--orig-dilate", type=int, default=6,
                     help="원래 옷 영역을 몇 px 넓혀서 가릴지. 원래 옷 테두리가 남으면 키우고, 주변 배경까지 번져 보이면 줄인다 (0=끔)")
     ap.add_argument("--publish", action="store_true", help="결과를 ../public/catalog 로 복사")
+    ap.add_argument("--skip-pose-check", action="store_true",
+                    help="모델 사진 표준 포즈 검사에서 불합격이어도 생성 (시험용. 품질 보장 안 됨)")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -122,6 +125,19 @@ def main():
         gc.collect()
         if hasattr(torch, "mps") and torch.backends.mps.is_available():
             torch.mps.empty_cache()
+
+    # 모델 사진 검사: 무거운 착용 모델을 올리기 전에 먼저 (몇 초)
+    pc = pose_check.check(pose_check.load_detector(args.weights), np.array(Image.open(args.model).convert("RGB")), str(args.model))
+    log.info("모델 사진 검사: %s", pc.status)
+    for e in pc.errors:
+        log.warning("  ✗ %s", e)
+    for w in pc.warnings:
+        log.info("  ! %s", w)
+    if not pc.ok:
+        if not args.skip_pose_check:
+            log.error("표준 포즈가 아니라 건너뜁니다 (docs/MODEL-PHOTO-GUIDE.md 참고). 그래도 돌리려면 --skip-pose-check")
+            sys.exit(2)
+        log.warning("--skip-pose-check: 불합격이지만 계속 진행합니다")
 
     device = pick_device(args.device)
     log.info("장치: %s (%s %s)", device, platform.system(), platform.machine())
