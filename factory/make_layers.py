@@ -175,12 +175,12 @@ def main():
             save_png(tryon, out / "raw" / f"{pid}.png")
 
             t2 = time.perf_counter()
-            gmask = excl = None
+            gmask = excl = skin = None
             if not args.no_segmentation:
                 seg = pipe.hp_model.predict(tryon)
                 cov = CATEGORY_TO_BODY_COVERAGE[TO_FASHN[cat]]
-                gmask, excl = segment_masks(seg, BODY_COVERAGE_TO_LABELS[cov], LABELS_TO_IDS)
-            layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, protect=protect)
+                gmask, excl, skin = segment_masks(seg, BODY_COVERAGE_TO_LABELS[cov], LABELS_TO_IDS)
+            layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect)
             t_ext = time.perf_counter() - t2
             save_png(layer, layer_path)
             tw.writerow([pid, cat, device, args.steps, f"{t_tryon:.1f}", f"{t_ext:.1f}", f"{st.coverage:.3f}", f"{st.outside_noise:.2f}", f"{st.protected_changed:.2f}"])

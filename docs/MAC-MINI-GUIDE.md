@@ -103,13 +103,17 @@ cd ~/viet && npm install && npm run dev -- --host
 가장 쉬운 방법: App Store의 **Draw Things** (무료) → 모델 **FLUX.1 [schnell]** 선택 → 크기 768×1024, Steps 4, Seed 고정 → 아래 문장으로 여러 장 만들어 마음에 드는 1장을 `factory/in/model.png` 로 저장.
 
 ```
-Full-body studio fashion catalog photo of a young adult Southeast Asian woman, standing straight facing the camera,
-arms relaxed slightly away from the body, hair tied back in a neat low bun, neutral expression,
-wearing a plain fitted light grey tank top and plain fitted light grey bike shorts, barefoot,
+Full-body studio fashion fitting photo of a young adult Southeast Asian woman, standing straight facing the camera,
+arms hanging relaxed slightly away from the body, hands open and empty, hair tied back in a neat high bun, neutral expression,
+wearing only a minimal seamless nude-beige bandeau bra top and minimal seamless nude-beige briefs, barefoot,
 plain light grey seamless studio background, soft even lighting, sharp focus, entire body visible from head to toe, centered
 ```
 
-조건: 정면·전신, 팔이 몸에서 조금 떨어짐, 머리 묶음(어깨를 덮지 않게), 몸에 붙는 단색 이너, 단순한 배경.
+조건: 정면·전신, 팔이 몸에서 조금 떨어지고 손에 아무것도 없음, 머리 묶음(어깨를 덮지 않게), 단순한 배경.
+
+**이너는 반드시 "어떤 옷보다도 작은" 살색 이너**여야 한다. 레이어는 모델이 원래 입은 옷을 덮을 수만 있고 벗길 수는 없다.
+PC 시험에서 기준 모델이 청반바지를 입고 있어서, 미니스커트 레이어 아래로 청반바지가 삐져나왔다.
+살색 이너면 짧은 치마·크롭티 아래로 보여도 피부처럼 보여 자연스럽다.
 그다음 4단계를 `--model in/model.png --out out/mac-model1 --force` 로 다시 실행.
 
 FLUX.1 schnell은 Apache-2.0이라 결과 이미지를 상업적으로 써도 된다. 실존 인물을 닮지 않게 여러 장 중에서 고른다.

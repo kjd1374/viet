@@ -49,11 +49,11 @@ def main():
     for pid in ids:
         tryon = np.array(Image.open(out / "raw" / f"{pid}.png").convert("RGB"))
         c = category.get(pid)
-        gmask = excl = None
+        gmask = excl = skin = None
         if parser is not None and c:
             seg = parser.predict(tryon)
-            gmask, excl = segment_masks(seg, BODY_COVERAGE_TO_LABELS[TO_COVERAGE[c]], LABELS_TO_IDS)
-        layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, protect=protect)
+            gmask, excl, skin = segment_masks(seg, BODY_COVERAGE_TO_LABELS[TO_COVERAGE[c]], LABELS_TO_IDS)
+        layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect)
         Image.fromarray(layer).save(out / "layers" / f"{pid}.png", optimize=True)
         layers[c or pid] = layer
         print(f"{pid} ({c}): 덮는 면적 {st.coverage * 100:.0f}%, 바깥 잡음 {st.outside_noise:.1f}")

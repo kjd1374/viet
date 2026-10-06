@@ -47,6 +47,7 @@ def extract_layer(
     *,
     garment_mask: np.ndarray | None = None,
     exclude: np.ndarray | None = None,
+    shadow_allowed: np.ndarray | None = None,
     protect: np.ndarray | None = None,
     diff_thresh: float = 14.0,
     feather: float = 1.6,
@@ -58,6 +59,7 @@ def extract_layer(
     garment_mask: 분할 모델이 찾은 옷 영역(0/255). 있으면 이것을 중심으로, 색차로 가장자리를 보강한다.
     exclude: 분할 모델이 피부·다른 종류의 옷으로 판정한 영역(0/255). 색차로 보강할 때 딸려 들어오지 않게 뺀다
              (예: 상의 밑단에 원래 모델의 청바지 허리띠가 묻어 나오는 것)
+    shadow_allowed: 그림자를 남겨도 되는 영역(피부). 원래 옷이 다른 옷으로 바뀐 자리를 그림자로 오판하지 않게 한다.
     protect: 얼굴·머리 등 레이어에 절대 넣지 않을 영역(0/255)
     반환: HxWx4 uint8 RGBA, 품질 지표
     """
@@ -119,6 +121,8 @@ def extract_layer(
     if shadow_ring > 0:
         ring = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * shadow_ring + 1,) * 2))
         ring = ring & cv2.bitwise_not(core) & shadow_like
+        if shadow_allowed is not None:
+            ring = ring & shadow_allowed
         if protect is not None:
             ring = ring & cv2.bitwise_not(protect)
         y_b = base.astype(np.float32) @ np.array([0.299, 0.587, 0.114], np.float32)
@@ -151,10 +155,14 @@ def composite(base: np.ndarray, layers: list[np.ndarray]) -> np.ndarray:
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
 
 
-def segment_masks(seg: np.ndarray, coverage_labels: list[str], labels_to_ids: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
-    """분할 결과 → (이 옷 영역, 빼야 할 영역=배경·이 옷을 제외한 모든 것: 피부, 다른 옷, 얼굴 등)"""
+SKIN_LABELS = ("arms", "hands", "legs", "feet", "torso")
+
+
+def segment_masks(seg: np.ndarray, coverage_labels: list[str], labels_to_ids: dict[str, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """분할 결과 → (이 옷 영역, 빼야 할 영역=배경·이 옷을 제외한 모든 것, 피부 영역)"""
     keep = [labels_to_ids[l] for l in coverage_labels if l in labels_to_ids]
     bg = labels_to_ids.get("background", 0)
     garment = np.isin(seg, keep)
     exclude = ~garment & (seg != bg)
-    return garment.astype(np.uint8) * 255, exclude.astype(np.uint8) * 255
+    skin = np.isin(seg, [labels_to_ids[l] for l in SKIN_LABELS if l in labels_to_ids])
+    return garment.astype(np.uint8) * 255, exclude.astype(np.uint8) * 255, skin.astype(np.uint8) * 255
