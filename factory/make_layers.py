@@ -70,6 +70,9 @@ def main():
     ap.add_argument("--out", default=HERE / "out", type=Path)
     ap.add_argument("--weights", default=HERE / "weights", type=Path)
     ap.add_argument("--device", default="auto", help="auto | mps | cuda | cpu")
+    ap.add_argument("--precision", default="auto", help="auto | fp32 | bf16  (auto: 맥 GPU에서는 bf16 = 메모리 절반)")
+    ap.add_argument("--mps-memory", type=float, default=0.6,
+                    help="맥 GPU 메모리 상한 비율 (권장 최대치 대비). 넘으면 맥이 멈추는 대신 오류 → CPU로 전환")
     ap.add_argument("--steps", type=int, default=30, help="20=빠름, 30=균형, 50=품질")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--limit", type=int, default=0, help="앞에서 N개만 (시험용)")
@@ -83,6 +86,8 @@ def main():
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     # 맥 GPU(MPS)가 지원하지 않는 연산은 CPU로 대신 처리
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    # 16GB 맥미니에서 메모리를 다 써 버려 재부팅되는 것을 막는다 (torch import 전에 설정해야 적용됨)
+    os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", str(args.mps_memory))
 
     out: Path = args.out
     items = json.loads(args.items.read_text(encoding="utf-8"))
@@ -93,17 +98,35 @@ def main():
     from fashn_human_parser import BODY_COVERAGE_TO_LABELS, CATEGORY_TO_BODY_COVERAGE, IDENTITY_LABELS, LABELS_TO_IDS
     from fashn_vton import TryOnPipeline
 
+    import gc
+
+    import torch
+
+    def build(dev: str):
+        p = TryOnPipeline(weights_dir=str(args.weights), device=dev)
+        use_bf16 = args.precision == "bf16" or (args.precision == "auto" and dev == "mps")
+        if use_bf16 and p.inference_dtype != torch.bfloat16:
+            p.tryon_model.to(dtype=torch.bfloat16)
+            p.inference_dtype = torch.bfloat16
+        log.info("정밀도: %s", str(p.inference_dtype).replace("torch.", ""))
+        return p
+
+    def free_memory():
+        gc.collect()
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+
     device = pick_device(args.device)
     log.info("장치: %s (%s %s)", device, platform.system(), platform.machine())
     t0 = time.perf_counter()
     try:
-        pipe = TryOnPipeline(weights_dir=str(args.weights), device=device)
+        pipe = build(device)
     except Exception as e:  # noqa: BLE001 - 맥 GPU 미지원 등: 시험이 멈추지 않게 CPU로 전환
         if device == "cpu":
             raise
         log.warning("%s에서 모델을 올리지 못해 CPU로 전환합니다: %s", device, e)
         device = "cpu"
-        pipe = TryOnPipeline(weights_dir=str(args.weights), device=device)
+        pipe = build(device)
     log.info("모델 로드 %.1fs", time.perf_counter() - t0)
 
     # 고정 모델: 앱에 그대로 쓰일 기준 이미지. 착용 모델 입력 해상도 이하로 맞춰 둔다.
@@ -166,8 +189,10 @@ def main():
                 if device == "cpu":
                     raise
                 log.warning("%s 생성 중 오류로 CPU로 전환해 다시 시도합니다: %s", device, e)
+                pipe = None  # GPU에 올린 모델을 먼저 놓아준 뒤 CPU로 다시 올린다
+                free_memory()
                 device = "cpu"
-                pipe = TryOnPipeline(weights_dir=str(args.weights), device=device)
+                pipe = build(device)
                 t1 = time.perf_counter()
                 res = pipe(**call)
             t_tryon = time.perf_counter() - t1

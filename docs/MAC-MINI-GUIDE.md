@@ -75,6 +75,9 @@ cd factory && .venv/bin/python get_samples.py
 - 이미 만든 레이어는 건너뛴다. 처음부터 다시: `--force`
 - 품질 비교: `--steps 30` 또는 `--steps 50` (느려짐) — `--out out/mac-s30` 처럼 폴더를 바꿔서
 - 맥 GPU에서 오류가 나면 자동으로 CPU로 바꿔 계속한다 (로그에 경고가 뜬다)
+- 메모리: 맥 GPU에서는 자동으로 bf16(메모리 절반)으로 돌리고, GPU 메모리 상한(`--mps-memory 0.6`)을 넘으면 맥이 멈추는 대신 CPU로 전환한다.
+  실행 전 **브라우저 등 다른 앱을 닫는다**. 그래도 재부팅되면 `--mps-memory 0.4` 로 낮추거나 `--device cpu`
+- 재부팅·새 터미널 뒤에는 먼저 `cd ~/viet/factory` (터미널은 홈 폴더에서 열린다)
 
 ## 5. 앱에서 확인
 
