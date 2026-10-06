@@ -65,7 +65,7 @@ export function ListView({ kind, items, onBack, onOpen, onGoOther, otherCount, o
                 <button className="tile" onClick={() => onOpen(p.id)} data-product-id={p.id}>
                   <span className="tile-img">
                     <img src={p.imageUrl} alt="" width={300} height={400} loading="lazy" />
-                    <span className="badge-dummy small">더미</span>
+                    {p.isDummy && <span className="badge-dummy small">더미</span>}
                   </span>
                   <span className="tile-title">{p.title}</span>
                   <span className="tile-meta">

@@ -100,6 +100,6 @@ test('원피스·아우터 규칙, 새로고침 유지, 입은 옷에서 구매 
 test('보관한 옷이 없으면 탐색으로 안내한다', async ({ page }) => {
   await open(page);
   await dismissGuide(page, true);
-  await page.goto('/#/styling');
+  await page.goto('/?catalog=dummy#/styling');
   await expect(page.getByText('보관한 옷이 없어요')).toBeVisible();
 });

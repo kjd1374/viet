@@ -37,6 +37,16 @@ npm run test:e2e
 보관함 → "보관한 옷으로 코디하기". 고정 모델 1명에 보관한 옷만 레이어로 입힌다. 상의만 바꾸면 하의는 그대로, 원피스는 상의·하의 자리를 덮고, 아우터는 맨 위. 모델·옷은 모두 일러스트 더미다.
 실제 사진으로 가는 방법과 위험: [docs/STYLING-FEASIBILITY.md](docs/STYLING-FEASIBILITY.md)
 
+## 레이어 공장 (factory/)
+
+실제 상품 사진 → 고정 모델에 AI 착용(FASHN VTON v1.5) → 옷만 떼어낸 투명 PNG → `public/catalog/catalog.json`.
+앱은 이 파일이 있으면 더미 대신 그것을 읽는다 (`?catalog=dummy`로 더미 강제).
+
+- 맥미니: [docs/MAC-MINI-GUIDE.md](docs/MAC-MINI-GUIDE.md)
+- 잘라내기 테스트 (저장소 폴더에서): Windows `factory\.venv\Scripts\python -m unittest factory/test_extract.py`, 맥 `factory/.venv/bin/python -m unittest factory/test_extract.py`
+- 라이선스: 착용 모델은 Apache-2.0, 함께 쓰는 사람 영역 분석(fashn-human-parser)은 **연구·평가 전용** → 서비스 전 교체 필요
+- Windows에서 PyTorch가 `WinError 1114`로 안 뜨면 (PC의 VC++ 런타임이 오래된 경우): 가상환경에 `pip install msvc-runtime` 후 `.venv/Scripts`의 `msvcp140*.dll`, `vcruntime140*.dll`, `concrt140.dll`을 `.venv/Lib/site-packages/torch/lib`로 복사
+
 ## 구조
 
 | 파일 | 역할 |

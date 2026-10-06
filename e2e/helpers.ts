@@ -3,7 +3,10 @@ import { expect, type Page } from '@playwright/test';
 export const SHOTS = 'docs/screenshots';
 
 export async function open(page: Page, query = '') {
-  await page.goto(`/${query}#/`);
+  // 내장 더미로 고정: 이 기계에 public/catalog가 있어도 테스트 결과가 같게
+  const q = new URLSearchParams(query.replace(/^\?/, ''));
+  q.set('catalog', 'dummy');
+  await page.goto(`/?${q.toString()}#/`);
   await expect(page.getByTestId('guide').or(page.getByTestId('top-card')).first()).toBeVisible();
 }
 

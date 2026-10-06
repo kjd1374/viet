@@ -87,7 +87,7 @@ export function Sheet({ product, state, context, onClose }: Props) {
           <div className="sheet-hero">
             <img src={product.imageUrl} alt="" width={96} height={128} />
             <div>
-              <span className="badge-dummy static">더미 상품</span>
+              {product.isDummy && <span className="badge-dummy static">더미 상품</span>}
               <h3>{product.title}</h3>
               <div className="sheet-price">
                 {formatPrice(product)} <span className="cur">{product.currency}</span>

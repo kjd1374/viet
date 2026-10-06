@@ -13,3 +13,7 @@ factory/out/
 __pycache__/
 .env
 .claude/
+
+# 레이어 공장 결과물 (사진 권리 확인 전에는 공개 저장소에 올리지 않는다)
+public/catalog/
+factory/in-sample/

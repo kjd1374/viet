@@ -1,4 +1,4 @@
-import { CATEGORY_OF, layerSvg, type Category } from './figure';
+import { CANVAS, CATEGORY_OF, layerSvg, modelSvg, type Category } from './figure';
 import { garmentSvg, type GarmentKind, type Pattern } from './garments';
 
 export type TradeType = 'wholesale' | 'retail';
@@ -13,7 +13,8 @@ export type Product = {
   sourceUrl?: string;
   tradeType: TradeType;
   sizes?: string[];
-  isDummy: true;
+  /** 실거래 상품이 아님 (더미·시험용). 화면에 표시한다. */
+  isDummy: boolean;
   category: Category;
   /** 고정 모델 캔버스에 정렬된 투명 착용 레이어. 실제 서비스에서는 AI 착용 결과에서 의류 영역만 잘라낸 PNG. */
   layerUrl: string;
@@ -71,6 +72,22 @@ export const PRODUCTS: Product[] = SEEDS.map((s, i) => ({
 }));
 
 export const PRODUCT_BY_ID: ReadonlyMap<string, Product> = new Map(PRODUCTS.map((p) => [p.id, p]));
+
+/** 코디의 고정 모델. 기본은 일러스트, catalog.json이 있으면 AI 생성 모델 사진으로 바뀐다. */
+export const MODEL = { url: modelSvg(), width: CANVAS.w, height: CANVAS.h, label: '일러스트 모델 · 더미 상품' };
+
+/**
+ * 외부 카탈로그로 교체한다 (앱 렌더 전에 한 번).
+ * 배열·맵을 제자리에서 바꾸므로 이를 가져다 쓰는 모듈은 그대로 동작한다.
+ */
+export function replaceCatalog(products: Product[], model: typeof MODEL) {
+  PRODUCTS.length = 0;
+  PRODUCTS.push(...products);
+  const map = PRODUCT_BY_ID as Map<string, Product>;
+  map.clear();
+  for (const p of products) map.set(p.id, p);
+  Object.assign(MODEL, model);
+}
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 export function formatPrice(p: Product): string {

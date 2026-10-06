@@ -1,11 +1,9 @@
-import { useMemo, useState } from 'react';
-import { CANVAS, modelSvg, type Category } from '../data/figure';
-import { formatPrice, PRODUCT_BY_ID, type Product } from '../data/products';
+import { useEffect, useMemo, useState } from 'react';
+import type { Category } from '../data/figure';
+import { formatPrice, MODEL, PRODUCT_BY_ID, type Product } from '../data/products';
 import { store } from '../store/instance';
 import { takeOff, visibleLayers, wear, type Outfit } from '../store/outfit';
 import { IconBack } from './Icons';
-
-const MODEL = modelSvg();
 
 const TABS: { key: Category; label: string; empty: string }[] = [
   { key: 'top', label: '상의', empty: '보관함에 상의가 없어요.' },
@@ -34,6 +32,15 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
     return m;
   }, [saved]);
   const [tab, setTab] = useState<Category>(() => TABS.find((t) => byCat[t.key].length)?.key ?? 'top');
+
+  // 보관함 옷의 레이어를 미리 받아 디코드 → 누르는 순간 바로 겹쳐진다
+  useEffect(() => {
+    for (const p of saved) {
+      const img = new Image();
+      img.src = p.layerUrl;
+      img.decode?.().catch(() => {});
+    }
+  }, [saved]);
 
   const layers = visibleLayers(outfit, (id) => savedIds.has(id));
   const worn = layers.map((l) => PRODUCT_BY_ID.get(l.id)!);
@@ -65,8 +72,8 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
       ) : (
         <>
           <div className="fit-stage">
-            <div className="fit-canvas" style={{ aspectRatio: `${CANVAS.w} / ${CANVAS.h}` }} data-testid="fit-canvas">
-              <img className="fit-layer" src={MODEL} alt="고정 모델" draggable={false} data-slot="model" />
+            <div className="fit-canvas" style={{ aspectRatio: `${MODEL.width} / ${MODEL.height}` }} data-testid="fit-canvas">
+              <img className="fit-layer" src={MODEL.url} alt="고정 모델" draggable={false} data-slot="model" />
               {layers.map((l) => (
                 <img
                   key={l.id}
@@ -79,7 +86,7 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
                 />
               ))}
             </div>
-            <span className="badge-dummy">일러스트 모델 · 더미 상품</span>
+            <span className="badge-dummy">{MODEL.label}</span>
             {worn.length > 0 && (
               <ul className="worn" aria-label="입은 옷">
                 {worn.map((p) => (

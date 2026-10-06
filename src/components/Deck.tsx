@@ -125,7 +125,7 @@ const CardBody = memo(function CardBody({ product, onInfo }: { product: Product;
   return (
     <>
       <img className="card-img" src={product.imageUrl} alt={product.title} width={600} height={800} draggable={false} />
-      <span className="badge-dummy">더미 상품</span>
+      {product.isDummy && <span className="badge-dummy">더미 상품</span>}
       <div className="card-info">
         <div className="card-meta">
           <span className={`chip chip-${product.tradeType}`}>{TRADE_LABEL[product.tradeType]}</span>
