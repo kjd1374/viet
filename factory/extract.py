@@ -46,6 +46,7 @@ def extract_layer(
     tryon: np.ndarray,
     *,
     garment_mask: np.ndarray | None = None,
+    exclude: np.ndarray | None = None,
     protect: np.ndarray | None = None,
     diff_thresh: float = 14.0,
     feather: float = 1.6,
@@ -55,6 +56,8 @@ def extract_layer(
     """
     base, tryon: HxWx3 uint8 RGB (tryon은 base 크기로 맞춰서 넘길 것)
     garment_mask: 분할 모델이 찾은 옷 영역(0/255). 있으면 이것을 중심으로, 색차로 가장자리를 보강한다.
+    exclude: 분할 모델이 피부·다른 종류의 옷으로 판정한 영역(0/255). 색차로 보강할 때 딸려 들어오지 않게 뺀다
+             (예: 상의 밑단에 원래 모델의 청바지 허리띠가 묻어 나오는 것)
     protect: 얼굴·머리 등 레이어에 절대 넣지 않을 영역(0/255)
     반환: HxWx4 uint8 RGBA, 품질 지표
     """
@@ -71,7 +74,10 @@ def extract_layer(
 
     if garment_mask is not None:
         near = cv2.dilate(garment_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
-        core = garment_mask | (changed & near & cv2.bitwise_not(shadow_like))
+        extra = changed & near & cv2.bitwise_not(shadow_like)
+        if exclude is not None:
+            extra = extra & cv2.bitwise_not(exclude)
+        core = garment_mask | extra
     else:
         core = changed & cv2.bitwise_not(shadow_like)
 
@@ -84,11 +90,28 @@ def extract_layer(
     core = cv2.morphologyEx(core, cv2.MORPH_CLOSE, k7)
     core = _keep_large(core, min_component)
     core = _fill_holes(core)
+    if exclude is not None:
+        core = core & cv2.bitwise_not(exclude)
     if protect is not None:
         core = core & cv2.bitwise_not(protect)
 
-    # 옷: 부드러운 가장자리, 색은 착용 결과 그대로
-    a_g = cv2.GaussianBlur(core.astype(np.float32) / 255.0, (0, 0), feather) if feather > 0 else core / 255.0
+    # 옷: 가장자리를 "안쪽으로" 부드럽게 한다 (경계에서 0 → 안쪽 약 2σ에서 1).
+    # 바깥으로 번지게 하면 착용 결과의 피부·원래 옷 색이 테두리로 묻어 나와, 다른 옷 위에 겹칠 때 띠가 보인다.
+    if feather > 0:
+        a_g = np.clip(2.0 * cv2.GaussianBlur(core.astype(np.float32) / 255.0, (0, 0), feather) - 1.0, 0.0, 1.0)
+    else:
+        a_g = core.astype(np.float32) / 255.0
+
+    # 가장자리 색 정리: 반투명 테두리의 색을 안쪽 옷 색으로 바꾼다 (정규화 블러로 안쪽 색만 바깥으로 번지게)
+    r = max(1, int(np.ceil(2.5 * feather)))
+    inner = cv2.erode(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
+    if inner.any():
+        known = (inner > 0).astype(np.float32)
+        num = cv2.GaussianBlur(tryon.astype(np.float32) * known[..., None], (0, 0), r)
+        den = cv2.GaussianBlur(known, (0, 0), r)[..., None]
+        inside_color = num / np.maximum(den, 1e-4)
+        band = ((a_g > 0) & (inner == 0) & (den[..., 0] > 0.02))[..., None]
+        tryon = np.where(band, np.clip(inside_color, 0, 255), tryon.astype(np.float32)).astype(np.uint8)
 
     # 그림자: 옷 주변 띠에서 base 대비 어두워진 비율만큼 "검은색 반투명".
     # 피부색을 싣지 않으므로 어떤 하의 위에 겹쳐도 그 하의를 자연스럽게 어둡게만 한다.
@@ -126,3 +149,12 @@ def composite(base: np.ndarray, layers: list[np.ndarray]) -> np.ndarray:
         a = lay[..., 3:4].astype(np.float32) / 255.0
         out = lay[..., :3].astype(np.float32) * a + out * (1 - a)
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
+def segment_masks(seg: np.ndarray, coverage_labels: list[str], labels_to_ids: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
+    """분할 결과 → (이 옷 영역, 빼야 할 영역=배경·이 옷을 제외한 모든 것: 피부, 다른 옷, 얼굴 등)"""
+    keep = [labels_to_ids[l] for l in coverage_labels if l in labels_to_ids]
+    bg = labels_to_ids.get("background", 0)
+    garment = np.isin(seg, keep)
+    exclude = ~garment & (seg != bg)
+    return garment.astype(np.uint8) * 255, exclude.astype(np.uint8) * 255

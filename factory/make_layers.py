@@ -30,7 +30,7 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from extract import composite, extract_layer  # noqa: E402
+from extract import composite, extract_layer, segment_masks  # noqa: E402
 
 # 앱 분류 → FASHN 분류. 아우터도 상반신 옷으로 입힌다.
 TO_FASHN = {"top": "tops", "outer": "tops", "bottom": "bottoms", "dress": "one-pieces"}
@@ -175,12 +175,12 @@ def main():
             save_png(tryon, out / "raw" / f"{pid}.png")
 
             t2 = time.perf_counter()
-            gmask = None
+            gmask = excl = None
             if not args.no_segmentation:
                 seg = pipe.hp_model.predict(tryon)
                 cov = CATEGORY_TO_BODY_COVERAGE[TO_FASHN[cat]]
-                gmask = label_mask(seg, [LABELS_TO_IDS[l] for l in BODY_COVERAGE_TO_LABELS[cov] if l in LABELS_TO_IDS])
-            layer, st = extract_layer(base, tryon, garment_mask=gmask, protect=protect)
+                gmask, excl = segment_masks(seg, BODY_COVERAGE_TO_LABELS[cov], LABELS_TO_IDS)
+            layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, protect=protect)
             t_ext = time.perf_counter() - t2
             save_png(layer, layer_path)
             tw.writerow([pid, cat, device, args.steps, f"{t_tryon:.1f}", f"{t_ext:.1f}", f"{st.coverage:.3f}", f"{st.outside_noise:.2f}", f"{st.protected_changed:.2f}"])
