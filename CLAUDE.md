@@ -114,7 +114,18 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
   포즈 이동: 코·손목 0.5px, 어깨 3px, 골반 5~7px, 발목 2px(1536 높이 기준). 배경 거의 동일, 얼굴은 약간 달라짐(색차 6).
 - GPT 결과로 기존 잘라내기(extract.py, orig_dilate 10, feather 1.6, 원본 해상도) → 합성본 깨끗, 얼굴은 원본 m01 그대로 유지.
   비교: factory/out/compare/gpt-vs-local.jpg, gpt-레이어합성.jpg
-- 다음 후보: make_layers.py에 `--engine gpt`(Codex 호출) 추가 → 8개 상품(상의·하의·원피스) 시험, 구독 사용량 소모 확인.
+- `--engine gpt` 구현 (factory/gpt_tryon.py). 실행:
+  `cd ~/viet/factory && .venv/bin/python make_layers.py --engine gpt --model in-sample/m01.png --items in-sample/items.json --out out/<새폴더>`
+  - 기본 엔진은 여전히 fashn(로컬). gpt는 FASHN 모델을 안 올리고 분할 모델만 CPU로. 기준 이미지 최대 1536px, 가장자리 폭은 해상도에 비례.
+  - 한 상품 실패해도 다음으로 진행, 사용량 한도면 중단(다시 실행하면 만든 것은 건너뜀). 구독 사용량은 ~/.codex/sessions 기록에서 읽어 로그에 표시.
+  - 결과 폴더에 overview.jpg(상품별 단독 합성본 한눈에 보기) 추가.
+- out/gpt-all (m01, 8개 전부): 개당 48~84초, 총 약 10분, 구독 사용량(7일 기준) 19%→20% (8장 ≈ 1%).
+  단독 합성본은 8개 모두 깨끗(무늬·프린트·시퀸·트임 재현 좋음). 비교: out/compare/gpt-all-1.jpg, gpt-all-2.jpg
+- **조합 문제(out/compare/gpt-조합.jpg)**: 크롭 상의(s02, s04) + 하의 조합에서 허리에 회색 띠, s01+s05도 허리에 회색 조각.
+  원인: base(m01)가 허리를 덮는 긴 탱크톱. ① 크롭 상의는 탱크톱 자리를 AI가 그린 맨배+회색 반바지 허리로 채워 레이어에 담고(다른 옷 덮음 1.3~1.4%),
+  ② 하의는 탱크톱에 가려진 허리 부분이 레이어에 없음 → 조합하면 그 사이로 회색이 보임.
+  대책 후보: base 모델을 배꼽 위 스포츠브라 + 짧은 쇼츠로 바꿈(GPT로 m01을 수정해 만들 수 있음) → 상의·하의 사이가 base의 맨살.
+  그래도 남으면 레이어를 "옷"과 "밑깔림(가린 자리 채움)" 두 장으로 나눠 앱에서 밑깔림을 먼저 그리게(src/components/Styling.tsx) 변경.
   대량 생산은 구독 한도 대신 OpenAI API(gpt-image-1-mini 중간 화질 1024x1536 약 $0.015/장) 또는 FASHN API($0.075) 검토.
 
 ## 최종 품질 테스트 (2026-10-07) — 다음 단계 결정
