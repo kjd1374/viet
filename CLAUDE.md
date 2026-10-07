@@ -8,6 +8,7 @@
 
 ## 환경
 - 머신: Mac mini M4, RAM 16GB, macOS 26.6.2 (2026-10-06 확인)
+- 디스크 여유 4.9GB (2026-10-07, 98% 사용). 메모리 부족 시 스왑할 공간이 적어 위험 → 큰 모델 다운로드 금지, 사용자에게 정리 권유
 - 저장소: https://github.com/kjd1374/viet (브랜치 main)
 - 로컬 경로: ~/viet (Claude Code 신뢰 폴더)
 - 파이프라인 폴더: ~/viet/factory — 모든 실행은 여기서
@@ -21,7 +22,9 @@
   - 가중치: factory/weights/model.safetensors
 - 포즈 인식: DWPose — factory/weights/dwpose
 - 인체 파싱: FashnHumanParser — Hugging Face fashn-ai/fashn-human-parser (실행 시 원격 확인 요청 발생)
-- 테스트 입력: factory/in-sample/person2.png(정면, 주의 등급), items.json. person0~6은 FASHN 데모 사진
+- 표준 모델 사진(사용자가 AI로 생성, 1024x1536): in-sample/m01.png 슬림·base / m02.png m01과 같은 체형+안경 / m03.png 곡선 체형
+  (2026-10-07 받은 파일은 m02·m03이 뒤바뀌어 있어 이름을 맞바꿈). in-sample/models.json: m01·m02 그룹 S(m01 base), m03 그룹 M base
+- 데모 입력: in-sample/person0~6.png(FASHN 데모), items.json
 - 포즈 검사: factory/pose_check.py (DWPose 키포인트). 촬영 가이드: docs/MODEL-PHOTO-GUIDE.md
 - 출력: factory/out/<폴더>/ (레이어, preview_composite.png, catalog.json)
 
@@ -29,14 +32,15 @@
 ```
 cd ~/viet/factory
 PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
-.venv/bin/python make_layers.py --model in-sample/person2.png --items in-sample/items.json \
+.venv/bin/python make_layers.py --model in-sample/m01.png --items in-sample/items.json \
 --out out/<새폴더> --steps 20 --limit 1
 ```
 - 두 환경변수는 필수. 없으면 맥이 메모리 부족으로 먹통이 된 후 재부팅됨(실제 발생).
 - HIGH만 1.4 미만으로 주면 "invalid low watermark ratio" 에러로 CPU 폴백됨 → 반드시 LOW를 HIGH보다 작게.
 - 이제 make_layers.py가 두 값을 자동 설정함(HIGH 0.7, LOW 0.5). 위처럼 직접 줘도 됨.
 - 정밀도: --dtype auto|fp32|bf16|fp16 (맥 기본 bf16). 폴백 시 traceback 전체가 로그에 남음.
-- 출력 폴더는 매번 새 이름으로(mac-test ~ mac-test5, mac-test3b 사용됨).
+- 출력 폴더는 매번 새 이름으로(mac-test ~ mac-test5, mac-test3b, std-m01, std-m01-fp32, final-test 사용됨).
+  이미 있는 폴더면 만든 상품은 건너뜀(시작 시 안내 출력). 다시 만들려면 --force
 - 생성 전에 모델 사진 포즈 검사. 불합격이면 종료(코드 2). 셀카(person5) 등으로 시험하려면 --skip-pose-check
 
 ## 이미 적용한 수정 (유지할 것)
@@ -56,6 +60,9 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 | out/mac-test4 | MPS / bfloat16, 정면 사진 person2 | 9.7s | 199s | 깔끔. 핑크 띠 같은 문제 없음. 소매 끝·밑단에 원래 옷(파랑) 얇은 테두리만 남음 |
 | out/mac-test5 | mac-test4 다시 잘라내기(--orig-dilate 6) | - | - | 파란 테두리 사라짐. 사용자 OK 기준 충족 |
 | out/mac-test3b | mac-test3 다시 잘라내기(--orig-dilate 6) | - | - | 허리 핑크 띠 사라짐. 그 자리는 AI가 그린 반바지 허리로 채워짐(다른 옷 덮음 0.6%) |
+| out/std-m01 | MPS / bfloat16, m01(표준 A포즈) | 9.8s | 197s | raw 깨끗. 합성본만 어깨 살색 번짐 + 소매 밑 팔에 검은 얼룩 (원인·수정은 아래 "합성 경계 수정") |
+| out/std-m01-fp32 | MPS / float32, m01 | 13.4s | 268s | std-m01과 동일 → 정밀도 무관 확정. 맥 기본은 bf16 유지 |
+| out/final-test | MPS / bfloat16, m01, 경계 수정 후 | 11.3s | 226s | 합성본 깨끗(어깨 번짐·팔 얼룩 없음, raw와 거의 같음). 종료 abort 없음. **판단: 이 방식 유지 → 다음은 체형 그룹 재사용** |
 
 - 세 테스트 모두 상의 1개, 덮는 면적 5%, 보호 영역 3%(face, hair, jewelry, bag, glasses, hat).
 - 테스트 모델 사진은 거울 셀카(폰을 든 손이 상체를 가림) — 최악 조건임.
@@ -75,6 +82,18 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 - "다른 옷 덮음 %" 로그: 새 옷이 원래 옷보다 작아 그 자리에 하의 등이 레이어에 들어간 비율. 0.5% 넘으면 경고.
   이 경우 다른 하의와 조합하면 어색할 수 있음 → 모델은 몸에 붙는 얇은 기본 옷을 입고 촬영해야 근본 해결.
 
+## 합성 경계 수정 (2026-10-07, std-m01 문제)
+- 진단: 분할 마스크는 정확(실제 옷 경계와 1~2px). raw는 깨끗하고 합성 단계만 문제.
+  1) 어깨 살색 번짐: base는 민소매라 맨어깨가 새 티 가장자리 밖으로 1~2px 튀어나옴 + 안쪽 feather로 그 살이 비침.
+  2) 소매 밑 팔의 검은 얼룩: "검은 반투명 그림자"(shadow_ring)가 소매 주변 피부를 넓게 어둡게 함.
+- 수정(extract.py): 새 옷 둘레 --orig-dilate px 안의 base 피부도 AI 결과로 채움(base_skin) → 번짐 제거, 실제 그림자는 이 띠에 담김.
+  shadow_ring 기본 0(끔), feather 1.6→1.0(경계 선명). 기존 원래 옷 가리기(4-2)는 그대로.
+- 출력 추가: out/<폴더>/raw.png(첫 상품 생성 원본), compare.png [원본 모델 | raw | 합성본], compare/<상품>.png,
+- 2배 업스케일은 생략: 원본 고해상도 사진 위에 레이어만 키워 얹는 방식(1초)은 어깨에 원본 살이 튀어나오고
+  소매 밑 피부 띠에 화질 차이가 보여 합성본보다 나빴음. 제대로 하려면 Real-ESRGAN 등 AI 업스케일러가 필요한데
+  모델·패키지 추가 다운로드가 필요하고 디스크 여유가 4.9GB라 보류. 디스크 정리 후 재검토.
+- 종료 시 "libc++abi recursive_mutex lock failed" abort: 결과 저장 후 os._exit로 파이썬 정리 단계를 건너뛰어 해결.
+
 ## 표준 모델 사진 검사 (4-3, 완료 2026-10-06)
 - pose_check.py: 불합격(생성 건너뜀) = 전신 아님, 앉음, 정면 아님(좌우 반전·어깨 기울기>10°·어깨너비/몸통<0.55·코 치우침), 두 눈 안 보임,
   손목·팔꿈치·아래팔이 몸통 사각형(양 어깨·양 골반, 90% 축소) 안. 주의 = 팔 벌림<8°, 키 비율 70~95% 밖, 가운데 아님, 배경 편차>18.
@@ -82,6 +101,12 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 - 결과는 out/pose-check/<이름>.jpg(관절 그림) + .json(키포인트). 4-4에서 키포인트 json 재사용 예정.
 - 가이드 핵심: 모델은 몸에 붙는 연회색 민소매+바이커 쇼츠(원래 옷 비침 방지), 머리 묶기, 액세서리 없음, 삼각대·배꼽 높이·3m·바닥 테이프.
 - 아직 표준 포즈 실제 사진 없음 → 사용자가 가이드대로 촬영 후 m01.png 등으로 넣어야 4-4 시험 가능.
+
+## 최종 품질 테스트 (2026-10-07) — 다음 단계 결정
+- 재실행 명령: `cd ~/viet/factory && .venv/bin/python make_layers.py --model in-sample/m01.png --items in-sample/items.json --out out/final-test2 --steps 20 --limit 1`
+- 결과: out/final-test/compare.png. 합성본이 raw와 거의 같은 수준으로 깨끗 → 레이어 방식 유지.
+- 다음: 2순위 과제(체형 그룹 재사용: --models, transfer_layers.py). m01(base)·m02(같은 그룹 S)·m03(그룹 M base) 준비됨.
+- 종료 시 "resource_tracker: leaked semaphore" 경고 1줄은 os._exit 때문에 나오는 무해한 메시지.
 
 ## 1순위 과제: mac-test3 품질 원인 파악 (위 분석으로 정밀도 원인은 배제됨, 완료)
 - CPU float32는 깔끔했고 MPS bfloat16은 망가짐 → 먼저 정밀도를 의심.

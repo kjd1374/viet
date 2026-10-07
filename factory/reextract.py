@@ -18,7 +18,7 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from extract import composite, extract_layer, segment_masks  # noqa: E402
+from extract import SKIN_LABELS, composite, extract_layer, segment_masks  # noqa: E402
 
 TO_COVERAGE = {"top": "upper", "outer": "upper", "bottom": "lower", "dress": "full"}
 
@@ -40,12 +40,13 @@ def main():
     base = np.array(Image.open(out / "model.png").convert("RGB"))
     protect = (np.array(Image.open(out / "protect.png").convert("L")) > 127).astype(np.uint8) * 255
 
-    parser = None
+    parser = base_skin = None
     if not args.no_segmentation:
         from fashn_human_parser import BODY_COVERAGE_TO_LABELS, LABELS_TO_IDS, FashnHumanParser
 
         parser = FashnHumanParser(device="cpu")
         base_seg = parser.predict(base)
+        base_skin = np.isin(base_seg, [LABELS_TO_IDS[l] for l in SKIN_LABELS if l in LABELS_TO_IDS]).astype(np.uint8) * 255
 
     layers = {}
     for pid in ids:
@@ -58,7 +59,7 @@ def main():
             gmask, excl, skin = segment_masks(seg, cov_labels, LABELS_TO_IDS)
             orig = np.isin(base_seg, [LABELS_TO_IDS[l] for l in cov_labels if l in LABELS_TO_IDS]).astype(np.uint8) * 255
         layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect,
-                                  orig_mask=orig, orig_dilate=args.orig_dilate)
+                                  orig_mask=orig, base_skin=base_skin, orig_dilate=args.orig_dilate)
         Image.fromarray(layer).save(out / "layers" / f"{pid}.png", optimize=True)
         layers[c or pid] = layer
         print(f"{pid} ({c}): 덮는 면적 {st.coverage * 100:.0f}%, 바깥 잡음 {st.outside_noise:.1f}, 다른 옷 덮음 {st.covered_other * 100:.1f}%")

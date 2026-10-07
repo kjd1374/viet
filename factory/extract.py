@@ -51,10 +51,11 @@ def extract_layer(
     shadow_allowed: np.ndarray | None = None,
     protect: np.ndarray | None = None,
     orig_mask: np.ndarray | None = None,
+    base_skin: np.ndarray | None = None,
     orig_dilate: int = 6,
     diff_thresh: float = 14.0,
-    feather: float = 1.6,
-    shadow_ring: int = 10,
+    feather: float = 1.0,
+    shadow_ring: int = 0,
     min_component: float = 0.002,
 ) -> tuple[np.ndarray, LayerStats]:
     """
@@ -66,6 +67,11 @@ def extract_layer(
     protect: 얼굴·머리 등 레이어에 절대 넣지 않을 영역(0/255)
     orig_mask: base에서 원래 입고 있던 같은 종류 옷의 영역(0/255). orig_dilate px 넓혀서, 새 옷이 덮지 않는 부분은
                착용 결과(AI가 그린 피부·배경)로 채운다 → 원래 옷이 새 옷 밖으로 비치거나 테두리로 남지 않는다.
+    base_skin: base의 피부 영역(0/255). 새 옷 둘레 orig_dilate px 안의 피부도 착용 결과로 채운다.
+               민소매 모델에 반팔을 입히면 base의 맨어깨가 새 옷 가장자리 밖으로 1~2px 비쳐 살색 번짐이 생기고,
+               소매 밑 팔의 실제 그림자도 이 띠에 그대로 담긴다.
+    shadow_ring: 옷 둘레 피부를 "검은 반투명"으로 어둡게 하는 폭(px). base_skin 띠가 실제 그림자를 담으므로 기본은 끔.
+                 켜면 AI 결과 피부가 전체적으로 어두울 때 팔에 검은 얼룩이 생긴다 (std-m01에서 확인).
     반환: HxWx4 uint8 RGBA, 품질 지표
     """
     assert base.shape == tryon.shape, "tryon을 base 크기로 맞춰야 합니다"
@@ -110,9 +116,12 @@ def extract_layer(
         if orig_dilate > 0:
             o = cv2.dilate(o, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * orig_dilate + 1,) * 2))
         cover = o & cv2.bitwise_not(core)
-        if protect is not None:
-            cover = cover & cv2.bitwise_not(protect)
-        core = core | cover
+    if base_skin is not None and orig_dilate > 0:
+        near = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * orig_dilate + 1,) * 2))
+        cover = cover | (base_skin & near & cv2.bitwise_not(core))
+    if protect is not None:
+        cover = cover & cv2.bitwise_not(protect)
+    core = core | cover
 
     # 옷: 가장자리를 "안쪽으로" 부드럽게 한다 (경계에서 0 → 안쪽 약 2σ에서 1).
     # 바깥으로 번지게 하면 착용 결과의 피부·원래 옷 색이 테두리로 묻어 나와, 다른 옷 위에 겹칠 때 띠가 보인다.

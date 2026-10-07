@@ -30,7 +30,7 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from extract import composite, extract_layer, segment_masks  # noqa: E402
+from extract import SKIN_LABELS, composite, extract_layer, segment_masks  # noqa: E402
 import pose_check  # noqa: E402
 
 # 앱 분류 → FASHN 분류. 아우터도 상반신 옷으로 입힌다.
@@ -62,6 +62,27 @@ def save_png(arr: np.ndarray, path: Path):
 
 def label_mask(seg: np.ndarray, ids: list[int]) -> np.ndarray:
     return (np.isin(seg, ids)).astype(np.uint8) * 255
+
+
+def side_by_side(panels: list[tuple[str, np.ndarray]], path: Path):
+    """[제목, 이미지] 들을 같은 높이로 나란히 저장 (확인용)."""
+    from PIL import ImageDraw, ImageFont
+
+    h = max(im.shape[0] for _, im in panels)
+    ims = [Image.fromarray(im).resize((round(im.shape[1] * h / im.shape[0]), h), Image.LANCZOS) for _, im in panels]
+    top, pad = 36, 8
+    sheet = Image.new("RGB", (sum(i.width for i in ims) + pad * (len(ims) - 1), h + top), "white")
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/AppleSDGothicNeo.ttc", 22)
+    except OSError:
+        font = ImageFont.load_default()
+    draw, x = ImageDraw.Draw(sheet), 0
+    for (title, _), im in zip(panels, ims):
+        sheet.paste(im, (x, top))
+        draw.text((x + 6, 6), title, fill="black", font=font)
+        x += im.width + pad
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(path, optimize=True)
 
 
 def main():
@@ -98,6 +119,8 @@ def main():
     os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", str(round(float(os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"]) * 5 / 7, 3)))
 
     out: Path = args.out
+    if (out / "layers").exists() and any((out / "layers").glob("*.png")) and not args.force:
+        log.info("출력 폴더가 이미 있습니다: %s → 이미 만든 상품은 건너뜁니다. 다시 만들려면 --force(덮어씀) 또는 새 --out 이름", out)
     items = json.loads(args.items.read_text(encoding="utf-8"))
     if args.limit:
         items = items[: args.limit]
@@ -172,6 +195,7 @@ def main():
         protect = label_mask(seg, [LABELS_TO_IDS[l] for l in IDENTITY_LABELS if l in LABELS_TO_IDS])
         protect = cv2.erode(protect, np.ones((3, 3), np.uint8))  # 경계는 옷이 덮을 수 있게 살짝 안쪽만
         save_png(protect, protect_path)
+    base_skin = None if base_seg is None else label_mask(base_seg, [LABELS_TO_IDS[l] for l in SKIN_LABELS if l in LABELS_TO_IDS])
     log.info("보호 영역 %.1f%% (%s)", protect.mean() / 2.55, ", ".join(IDENTITY_LABELS))
 
     timings_path = out / "timings.csv"
@@ -183,6 +207,7 @@ def main():
 
     products = []
     layers_for_preview: dict[str, np.ndarray] = {}
+    first_raw = None
     for i, it in enumerate(items, 1):
         pid, cat = it["id"], it["category"]
         layer_path = out / "layers" / f"{pid}.png"
@@ -196,7 +221,7 @@ def main():
             g.save(img_path, quality=88)
 
         if layer_path.exists() and not args.force:
-            log.info("[%d/%d] %s 건너뜀 (이미 있음)", i, len(items), pid)
+            log.info("[%d/%d] %s 건너뜀 (이미 있음, --force로 다시 생성)", i, len(items), pid)
         else:
             garment = Image.open(garment_src).convert("RGB")
             call = dict(
@@ -232,7 +257,7 @@ def main():
                 gmask, excl, skin = segment_masks(seg, cov_labels, LABELS_TO_IDS)
                 orig = label_mask(base_seg, [LABELS_TO_IDS[l] for l in cov_labels if l in LABELS_TO_IDS])
             layer, st = extract_layer(base, tryon, garment_mask=gmask, exclude=excl, shadow_allowed=skin, protect=protect,
-                                      orig_mask=orig, orig_dilate=args.orig_dilate)
+                                      orig_mask=orig, base_skin=base_skin, orig_dilate=args.orig_dilate)
             t_ext = time.perf_counter() - t2
             save_png(layer, layer_path)
             tw.writerow([pid, cat, device, args.steps, f"{t_tryon:.1f}", f"{t_ext:.1f}", f"{st.coverage:.3f}", f"{st.outside_noise:.2f}", f"{st.protected_changed:.2f}", f"{st.covered_other:.4f}"])
@@ -246,6 +271,13 @@ def main():
                 log.warning("  %s: 새 옷이 원래 옷보다 작아 그 자리에 다른 옷(하의 등)이 그려졌습니다. 다른 하의와 조합하면 어색할 수 있음", pid)
 
         layers_for_preview[cat] = np.array(Image.open(layer_path).convert("RGBA"))
+        raw_path = out / "raw" / f"{pid}.png"
+        if raw_path.exists():
+            raw = np.array(Image.open(raw_path).convert("RGB"))
+            if first_raw is None:
+                first_raw = raw
+            side_by_side([("원본 모델", base), (f"AI 생성 원본 {pid}", raw), (f"{pid}만 합성", composite(base, [layers_for_preview[cat]]))],
+                         out / "compare" / f"{pid}.png")
         products.append(
             {
                 "id": pid,
@@ -268,7 +300,14 @@ def main():
     order = [c for c in ("bottom", "top", "dress", "outer") if c in layers_for_preview]
     if "dress" in order:
         order = [c for c in order if c not in ("top", "bottom")]
-    save_png(composite(base, [layers_for_preview[c][..., :4] for c in order]), out / "preview_composite.png")
+    preview_layers = [layers_for_preview[c][..., :4] for c in order]
+    preview = composite(base, preview_layers)
+    save_png(preview, out / "preview_composite.png")
+    # 판단용: 잘라내기 전 생성 원본(raw.png)과 [원본 모델 | raw | 합성본] 비교
+    if first_raw is not None:
+        save_png(first_raw, out / "raw.png")
+        side_by_side([("원본 모델", base), ("AI 생성 원본 (raw)", first_raw), ("합성본", preview)], out / "compare.png")
+        log.info("비교 이미지: %s", out / "compare.png")
 
     catalog = {
         "model": {"imageUrl": "model.png", "width": base.shape[1], "height": base.shape[0], "label": "AI 생성 모델 · 샘플 상품"},
@@ -290,4 +329,19 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    code = 0
+    try:
+        main()
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    except BaseException:  # noqa: BLE001
+        import traceback
+
+        traceback.print_exc()
+        code = 1
+    # 정상 종료 시 파이썬 정리 단계에서 onnxruntime·MPS 스레드가 꼬여
+    # "libc++abi: ... recursive_mutex lock failed" 로 abort 된다. 결과 파일은 이미 다 썼으므로 정리를 건너뛰고 끝낸다.
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
