@@ -102,6 +102,21 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 - 가이드 핵심: 모델은 몸에 붙는 연회색 민소매+바이커 쇼츠(원래 옷 비침 방지), 머리 묶기, 액세서리 없음, 삼각대·배꼽 높이·3m·바닥 테이프.
 - 아직 표준 포즈 실제 사진 없음 → 사용자가 가이드대로 촬영 후 m01.png 등으로 넣어야 4-4 시험 가능.
 
+## GPT(Codex) 생성 시험 (2026-10-07) — 로컬 FASHN 1.5 대체 후보
+- 사용자 판단: 로컬 결과(576x864, 4분/벌)는 실사용 수준이 아님 → 외부 생성 검토.
+- 맥에 Codex 앱 설치·ChatGPT 구독 로그인 상태. 앱 내장 CLI: /Applications/Codex.app/Contents/Resources/codex (0.137 alpha)
+  - 기본 모델(gpt-6-astra)은 이 CLI 버전에서 거부됨 → `-m gpt-5.5` 지정. Codex 앱 업데이트 권장.
+  - `-i` 는 여러 파일을 받으므로 프롬프트는 stdin(heredoc)으로 넘길 것. 이미지 생성은 구독 사용량을 텍스트보다 3~5배 빨리 씀.
+- 명령 예 (out/gpt-test):
+  `codex exec -m gpt-5.5 --skip-git-repo-check -s workspace-write -C <출력폴더> -i m01.png -i garment.jpg <<'EOF' ... EOF`
+  프롬프트: 첫 이미지의 탱크톱만 두 번째 이미지 옷으로 교체, 나머지(얼굴·체형·포즈·배경·구도) 동일, 1024x1536, gpt_tryon.png로 저장.
+- 결과: 약 1분, 1024x1536. 옷 주름·로고 선명, 로컬보다 확연히 좋음. 로고 아이콘 세부는 약간 다시 그려짐.
+  포즈 이동: 코·손목 0.5px, 어깨 3px, 골반 5~7px, 발목 2px(1536 높이 기준). 배경 거의 동일, 얼굴은 약간 달라짐(색차 6).
+- GPT 결과로 기존 잘라내기(extract.py, orig_dilate 10, feather 1.6, 원본 해상도) → 합성본 깨끗, 얼굴은 원본 m01 그대로 유지.
+  비교: factory/out/compare/gpt-vs-local.jpg, gpt-레이어합성.jpg
+- 다음 후보: make_layers.py에 `--engine gpt`(Codex 호출) 추가 → 8개 상품(상의·하의·원피스) 시험, 구독 사용량 소모 확인.
+  대량 생산은 구독 한도 대신 OpenAI API(gpt-image-1-mini 중간 화질 1024x1536 약 $0.015/장) 또는 FASHN API($0.075) 검토.
+
 ## 최종 품질 테스트 (2026-10-07) — 다음 단계 결정
 - 재실행 명령: `cd ~/viet/factory && .venv/bin/python make_layers.py --model in-sample/m01.png --items in-sample/items.json --out out/final-test2 --steps 20 --limit 1`
 - 결과: out/final-test/compare.png. 합성본이 raw와 거의 같은 수준으로 깨끗 → 레이어 방식 유지.
