@@ -9,6 +9,11 @@
 ## 환경
 - 머신: Mac mini M4, RAM 16GB, macOS 26.6.2 (2026-10-06 확인)
 - 디스크 여유 4.9GB (2026-10-07, 98% 사용). 메모리 부족 시 스왑할 공간이 적어 위험 → 큰 모델 다운로드 금지, 사용자에게 정리 권유
+- **2026-10-09 로컬 피팅 환경 삭제** (사용자 요청: M4 로컬 생성은 한계 확인). 휴지통 ~/.Trash/viet-local-fitting-2026-10-09 로 이동(4.3GB):
+  factory/.venv, factory/weights(FASHN 모델·DWPose), factory/hf-cache(인체 분할 모델), factory/vendor, uv Python 3.11, 이 프로젝트가 만든 uv 캐시.
+  남긴 것: node·uv(brew, 프로젝트 전부터 있었음), out/(결과), in-sample/(모델·상품 사진), 프로젝트와 무관한 기존 설치물(Ollama 등, 사용자가 유지 선택).
+  → 지금 이 맥에서는 make_layers.py·pose_check.py·reextract.py가 안 돈다. gpt_tryon.py(표준 라이브러리만 사용)는 시스템 python3로 실행 가능.
+  → 다시 쓰려면: 휴지통을 비우기 전이면 되돌려 놓기, 비웠으면 `bash factory/setup_mac.sh` (약 10분, FASHN 모델 포함 약 4GB 다운로드).
 - 저장소: https://github.com/kjd1374/viet (브랜치 main)
 - 로컬 경로: ~/viet (Claude Code 신뢰 폴더)
 - 파이프라인 폴더: ~/viet/factory — 모든 실행은 여기서
