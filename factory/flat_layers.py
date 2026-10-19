@@ -30,7 +30,7 @@ WORK_SIDE = 1200  # 배경 제거 작업 해상도 (긴 변)
 RULES = {
     "top": dict(width=((0.55, 0.85), "chest", 1.15), align=("top", "collar")),
     "outer": dict(width=((0.55, 0.85), "chest", 1.30), align=("top", "collar")),
-    "bottom": dict(width=((0.00, 0.06), "band", 1.12), align=("top", "band")),
+    "bottom": dict(width=((0.02, 0.10), "band", 1.12), align=("top", "band")),
     "dress": dict(width=("narrow", "waist", 1.15), align=("narrow", "waist")),
 }
 
@@ -85,19 +85,66 @@ def _foreground(img: Image.Image, shadows: bool = True):
     return a, ~background, bg, tol, dist, f
 
 
+def _remove_dress_form(a: np.ndarray, fg: np.ndarray, max_dist: float = 45.0) -> tuple[np.ndarray, float]:
+    """상품컷이 크림색 상반신 마네킹(토르소)에 입혀 찍힌 경우, 옷 위쪽 가운데(목)에서 토르소 색을 재고
+    그 색에 가깝고 매끈하며 배경에 닿아 있는 영역(목·어깨·골반)을 지운다. 토르소가 없으면 그대로."""
+    ys, xs = np.nonzero(fg)
+    y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+    cx, hh, ww = (x0 + x1) // 2, y1 - y0, x1 - x0
+    sl = (slice(y0 + int(hh * 0.01), y0 + int(hh * 0.06) + 1), slice(cx - int(ww * 0.05), cx + int(ww * 0.05) + 1))
+    patch, pm = a[sl], fg[sl]
+    if pm.mean() < 0.8:
+        return fg, 0.0
+    c = np.median(patch[pm], axis=0)
+    r, g, b = c
+    if not (c.mean() > 195 and 8 <= r - b <= 40 and r >= g >= b):  # 따뜻한 크림색이 아니면 토르소 아님
+        return fg, 0.0
+    # 토르소는 천(린넨) 결과 그늘이 있어 매끈함으로는 못 고른다 → 색(따뜻한 크림)과 토르소 색과의 거리로
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    warm = (R >= G - 2) & (G >= B - 2) & (R - B >= 5) & (R - B <= 45) & (a.mean(axis=2) > 140)
+    cand = fg & warm & (np.linalg.norm(a - c, axis=2) < max_dist)
+    touch = np.zeros_like(fg)
+    bgm = ~fg
+    touch[1:] |= bgm[:-1]
+    touch[:-1] |= bgm[1:]
+    touch[:, 1:] |= bgm[:, :-1]
+    touch[:, :-1] |= bgm[:, 1:]
+    form = _grow(cand & touch, cand)
+    return fg & ~form, float(form.sum()) / max(1, fg.sum())
+
+
 def cut_garment(img: Image.Image) -> tuple[Image.Image, dict]:
     """단색에 가까운 배경을 테두리에서부터 지운다. 옷과 떨어진 글자·치수 표시 등 작은 조각은 버린다."""
     a, fg, bg, tol, dist, _ = _foreground(img)
+    fg, form = _remove_dress_form(a, fg)
     # 가장 큰 덩어리(옷)만: 가운데 근처 전경에서 키운다
     ys, xs = np.nonzero(fg)
     if len(ys) == 0:
         raise ValueError("옷을 찾지 못함 (배경과 구분이 안 됨)")
+    # 가운데에서 가까운 덩어리부터 키워 보고, 가장 큰 덩어리를 옷으로 (바지는 가운데가 두 다리 사이 빈 곳일 수 있다)
     cy, cx = np.median(ys), np.median(xs)
-    seed = np.zeros_like(fg)
-    k = np.argmin((ys - cy) ** 2 + (xs - cx) ** 2)
-    seed[ys[k], xs[k]] = True
-    main = _grow(seed, fg)
+    main, rest = np.zeros_like(fg), fg.copy()
+    for _ in range(8):
+        ys, xs = np.nonzero(rest)
+        if len(ys) == 0:
+            break
+        seed = np.zeros_like(fg)
+        k = np.argmin((ys - cy) ** 2 + (xs - cx) ** 2)
+        seed[ys[k], xs[k]] = True
+        comp = _grow(seed, fg)
+        if comp.sum() > main.sum():
+            main = comp
+        rest &= ~comp
+        if main.sum() >= 0.5 * fg.sum():
+            break
     dropped = float((fg & ~main).sum()) / max(1, fg.sum())
+    # 옷 안쪽 구멍(목둘레·트임 사이로 보이는 배경): 배경색과 거의 같은 넓은 영역만 지운다.
+    # 15px 정사각형이 통째로 들어가는 영역만 남겨서 시작 → 로고 글자·작은 흰 무늬는 남는다
+    hole = main & (dist < tol * 0.8)
+    h8 = Image.fromarray(hole.astype(np.uint8) * 255)
+    core = np.asarray(h8.filter(ImageFilter.MinFilter(15)).filter(ImageFilter.MaxFilter(15))) > 0
+    holes = _grow(core & hole, hole) if core.any() else np.zeros_like(hole)
+    main &= ~holes
     # 가장자리: 경계 픽셀에는 배경색이 섞여 있어 다른 옷·마네킹 위에서 흰 테두리로 보인다
     # → 2px 안쪽으로 줄인 뒤 1px 정도 부드럽게 펴고, 펴진 부분의 색은 안쪽 옷 색으로 채운다
     m8 = Image.fromarray(main.astype(np.uint8) * 255)
@@ -111,7 +158,8 @@ def cut_garment(img: Image.Image) -> tuple[Image.Image, dict]:
     rgba = np.dstack([np.clip(rgb, 0, 255), alpha * 255]).astype(np.uint8)
     out = Image.fromarray(rgba, "RGBA")
     bbox = out.getbbox()
-    return out.crop(bbox), {"bg": [round(float(c)) for c in bg], "tol": round(tol, 1), "dropped": round(dropped, 3)}
+    return out.crop(bbox), {"bg": [round(float(c)) for c in bg], "tol": round(tol, 1), "dropped": round(dropped, 3),
+                            "holes": round(float(holes.sum()) / max(1, fg.sum()), 3), "form": round(form, 3)}
 
 
 # ---------- 마네킹 기준선 ----------
@@ -174,7 +222,8 @@ def _garment_width(mask: np.ndarray, spec) -> tuple[float, int]:
         y = lo + int(np.argmin(np.where(ext[lo:hi] > 0, ext[lo:hi], 10**6)))
         return float(ext[y]), y
     lo, hi = int(h * spec[0]), max(int(h * spec[0]) + 1, int(h * spec[1]))
-    return float(np.median(ext[lo:hi])), lo
+    # 단추·끈 같은 가는 줄에 속지 않게 구간에서 넓은 쪽(상위 25%) 폭을 쓴다
+    return float(np.percentile(ext[lo:hi], 75)), lo
 
 
 def place(garment: Image.Image, category: str, anchors: dict, fit: dict | None = None) -> tuple[Image.Image, dict]:
@@ -185,6 +234,9 @@ def place(garment: Image.Image, category: str, anchors: dict, fit: dict | None =
     g_w, g_row = _garment_width(m, span)
     target_w = anchors[f"{ref}_w"] * ease
     s = target_w / max(g_w, 1) * float(fit.get("scale", 1.0))
+    # 폭 측정이 틀려도 터무니없는 크기가 되지 않게: 옷 높이가 마네킹 키(머리~발)의 1.1배를 넘지 않게 제한
+    body = anchors["bottom"] - anchors["top"]
+    s = min(s, body * 1.1 / garment.height, 4.0)
     g = garment.convert("RGBa").resize((max(1, round(garment.width * s)), max(1, round(garment.height * s))), Image.LANCZOS).convert("RGBA")
     # 세로: 옷의 기준 줄(맨 위 또는 허리)을 마네킹 기준선에
     g_y = 0 if g_align == "top" else round(g_row * s)
@@ -210,15 +262,20 @@ def _font(size: int):
         return ImageFont.load_default()
 
 
-def sheet(panels: list[tuple[str, Image.Image]], path: Path, h: int = 720):
+def sheet(panels: list[tuple[str, Image.Image]], path: Path, h: int = 720, cols: int = 5):
+    """같은 높이로 줄 맞춰 나란히 (cols개씩 줄바꿈)."""
     ims = [p.convert("RGB").resize((round(p.width * h / p.height), h), Image.LANCZOS) for _, p in panels]
     top, pad = 34, 8
-    s = Image.new("RGB", (sum(i.width for i in ims) + pad * (len(ims) - 1), h + top), "white")
-    d, x = ImageDraw.Draw(s), 0
-    for (t, _), im in zip(panels, ims):
-        s.paste(im, (x, top))
-        d.text((x + 6, 5), t, fill="black", font=_font(20))
-        x += im.width + pad
+    rows = [list(zip(panels, ims))[i:i + cols] for i in range(0, len(ims), cols)]
+    W = max(sum(im.width for _, im in r) + pad * (len(r) - 1) for r in rows)
+    s = Image.new("RGB", (W, len(rows) * (h + top + pad)), "white")
+    d = ImageDraw.Draw(s)
+    for ri, r in enumerate(rows):
+        x, y = 0, ri * (h + top + pad)
+        for (t, _), im in r:
+            s.paste(im, (x, y + top))
+            d.text((x + 6, y + 5), t[:28], fill="black", font=_font(20))
+            x += im.width + pad
     path.parent.mkdir(parents=True, exist_ok=True)
     s.save(path, quality=88)
 
@@ -339,7 +396,7 @@ def main():
         thumb.thumbnail((900, 1200), Image.LANCZOS)
         (out / "images").mkdir(exist_ok=True)
         thumb.save(out / "images" / f"{pid}.jpg", quality=88)
-        print(f"{pid} {cat}: 배경 {info['bg']} 허용 {info['tol']}, 떨어진 조각 {info['dropped']:.1%}, 배율 {pos['scale']}, 위치 ({pos['x']},{pos['y']})")
+        print(f"{pid} {cat}: 배경 {info['bg']} 허용 {info['tol']}, 떨어진 조각 {info['dropped']:.1%}, 안쪽 구멍 {info['holes']:.1%}, 토르소 {info['form']:.1%}, 배율 {pos['scale']}, 위치 ({pos['x']},{pos['y']})")
         checker = Image.new("RGB", cut.size, (205, 225, 205))
         checker.paste(cut, (0, 0), cut)
         cut_panels.append((f"{pid} 원본", Image.open(src)))
@@ -351,10 +408,10 @@ def main():
             "category": cat, "imageUrl": f"images/{pid}.jpg", "layerUrl": f"layers/{pid}.png", "isDummy": it.get("isDummy", True),
         })
 
-    sheet(cut_panels, out / "cutouts.jpg", h=360)
+    sheet(cut_panels, out / "cutouts.jpg", h=360, cols=10)
     sheet([(f"{pid} {it['title']}", stack(model, [layers[pid]])) for pid, it in ((i["id"], i) for i in items)], out / "overview.jpg")
     if args.combos:
-        sheet([(c, stack(model, [layers[p] for p in c.split("+")])) for c in args.combos], out / "combos.jpg")
+        sheet([(c, stack(model, [layers[p] for p in c.split("+")])) for c in args.combos], out / "combos.jpg", cols=4)
     catalog = {"model": {"imageUrl": "model.png", "width": model.width, "height": model.height, "label": "기본 마네킹 · 샘플 상품"},
                "products": products}
     (out / "catalog.json").write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -150,6 +150,19 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
 - Codex: 2026-10-09 brew로 CLI 0.162 설치됨(/opt/homebrew/bin/codex). ChatGPT 계정에서 `-m gpt-5.5` 거부 → gpt_tryon.py는 기본 모델 사용,
   추론 강도 low. 2026-10-19 구독 사용량(7일) 58%.
 
+## 실제 쇼핑몰 크롤링 시험 (2026-10-19, classic-blanc.com, 카페24)
+- factory/crawl_cafe24.py: 카테고리별 무작위 상품 → 상세 이미지 중 "상품컷"(흰 배경·옷 하나·여백·피부 적음)을 자동 선택.
+  대표 이미지는 모델컷이라 안 씀. 세트 상품 건너뜀. robots.txt상 상품 목록·상세는 허용, 요청 간 0.4초 쉼.
+  `cd ~/viet/factory && python3 crawl_cafe24.py --site https://classic-blanc.com --cat top=25 --cat bottom=58 --cat dress=26 --cat outer=57 --per 5 --out in-sample/real --source-name 클래식블랑`
+  결과 in-sample/real/ (저장소에 안 올림). 카테고리: 상의 25, 하의 58, 원피스세트 26, 아우터 57.
+- 수집: 세트 아닌 상품 28개 중 20개(71%)에서 상품컷 발견. 원피스 카테고리는 22개 중 13개가 세트라 건너뜀.
+- **실제 상품컷의 대부분(상의·원피스·아우터)은 크림색 상반신 마네킹(토르소)에 입혀 찍은 것**, 하의·일부만 바닥에 펼친 사진.
+  → 배경만 지우면 토르소 목·골반이 남음. flat_layers.py에 토르소 제거 추가(옷 윗가운데에서 따뜻한 크림색 측정 → 그 색에 가깝고 배경에 닿은 영역 제거).
+- 결과(out/real-test2/cutouts.jpg, combos.jpg): 어두운 옷 + 펼친 하의는 종이 인형 수준으로 쓸 만함.
+  실패: ① 흰색·크림색 옷이 토르소와 색이 같아 같이 지워짐(t6617 흰 티 너덜너덜, t6679 세트의 크림 티 사라짐, d4555 흰 니트 토르소 못 찾음)
+  ② 토르소 조각이 어깨에 조금 남음(t6575, d6502) ③ 긴소매는 아래로 곧게 내려와 마네킹 팔과 각도가 안 맞음 ④ 펼친 니트는 작고 높게 붙음.
+- 판단: 생성 AI는 필요 없지만, 토르소 컷을 안정적으로 처리하려면 옷 영역 분할 모델(예전 FashnHumanParser 같은 종류, CPU 1초 내외)이 필요할 가능성 큼.
+
 ## 최종 품질 테스트 (2026-10-07) — 다음 단계 결정
 - 재실행 명령: `cd ~/viet/factory && .venv/bin/python make_layers.py --model in-sample/m01.png --items in-sample/items.json --out out/final-test2 --steps 20 --limit 1`
 - 결과: out/final-test/compare.png. 합성본이 raw와 거의 같은 수준으로 깨끗 → 레이어 방식 유지.
