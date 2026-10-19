@@ -226,31 +226,72 @@ def _garment_width(mask: np.ndarray, spec) -> tuple[float, int]:
     return float(np.percentile(ext[lo:hi], 75)), lo
 
 
-def place(garment: Image.Image, category: str, anchors: dict, fit: dict | None = None) -> tuple[Image.Image, dict]:
-    rule = RULES[category]
+# 실측이 없을 때 쓰는 대략적인 총길이(cm). 상품명 낱말로 고른다 (위에서부터 먼저 맞는 것)
+DEFAULT_LENGTH = {
+    "top": [("크롭", 45), ("롱", 70), ("", 56)],
+    "outer": [("크롭", 48), ("숏", 52), ("롱", 100), ("하프", 80), ("", 62)],
+    "bottom": [("반바지", 34), ("숏", 34), ("5부", 60), ("카프리", 60), ("미니", 38), ("미디", 75), ("롱스커트", 90), ("스커트", 45), ("치마", 45), ("", 100)],
+    "dress": [("미니", 80), ("미디", 105), ("롱", 120), ("", 90)],
+}
+
+
+def length_cm(category: str, measure: dict | None, title: str) -> tuple[float, str]:
+    if measure and measure.get("length"):
+        return float(measure["length"]), "실측"
+    for word, cm in DEFAULT_LENGTH[category]:
+        if word in title:
+            return float(cm), f"기본값({word or category})"
+    return 60.0, "기본값"
+
+
+FLAT_WRAP = 0.78  # 바닥에 펼친 옷 폭(≈둘레의 절반) → 몸에 입었을 때 정면에서 보이는 폭 (타원 단면 기준 약 0.75~0.8)
+
+
+def place(garment: Image.Image, category: str, anchors: dict, fit: dict | None = None,
+          measure: dict | None = None, ppc: float | None = None, title: str = "", flat: bool = False) -> tuple[Image.Image, dict]:
+    """ppc(마네킹 1cm당 px)가 있으면 실측 총길이로 크기를 정하고, 없으면 예전처럼 사진 속 옷 폭으로 맞춘다."""
     fit = fit or {}
     m = np.asarray(garment.split()[-1]) > 127
-    (span, ref, ease), (g_align, m_align) = rule["width"], rule["align"]
-    g_w, g_row = _garment_width(m, span)
-    target_w = anchors[f"{ref}_w"] * ease
-    s = target_w / max(g_w, 1) * float(fit.get("scale", 1.0))
-    # 폭 측정이 틀려도 터무니없는 크기가 되지 않게: 옷 높이가 마네킹 키(머리~발)의 1.1배를 넘지 않게 제한
+    H = anchors["image_size"][1]
+    info: dict = {}
+    if ppc:
+        L, src = length_cm(category, measure, title)
+        s = L * ppc / garment.height
+        info.update(length_cm=L, src=src)
+        # 세로: 상의·원피스·아우터는 옷 맨 위를 목 아래(옷깃 자리)에, 하의는 밑위로 허리밴드 높이를 정한다
+        if category == "bottom":
+            rise = (measure or {}).get("rise")
+            m_y = anchors["crotch_y"] - rise * ppc * 0.9 if rise else anchors["band_y"]  # 앞 밑위는 배 곡선을 따라 재므로 세로로는 약 0.9배
+            info["rise_cm"] = rise
+        else:
+            m_y = anchors["collar_y"]
+        g_y = 0
+    else:
+        rule = RULES[category]
+        (span, ref, ease), (g_align, m_align) = rule["width"], rule["align"]
+        g_w, g_row = _garment_width(m, span)
+        s = anchors[f"{ref}_w"] * ease / max(g_w, 1)
+        m_y = anchors[f"{m_align}_y"]
+        g_y = 0 if g_align == "top" else g_row
+    s *= float(fit.get("scale", 1.0))
+    # 측정이 틀려도 터무니없는 크기가 되지 않게: 옷 높이가 마네킹 키(머리~발)의 1.1배를 넘지 않게
     body = anchors["bottom"] - anchors["top"]
     s = min(s, body * 1.1 / garment.height, 4.0)
-    g = garment.convert("RGBa").resize((max(1, round(garment.width * s)), max(1, round(garment.height * s))), Image.LANCZOS).convert("RGBA")
-    # 세로: 옷의 기준 줄(맨 위 또는 허리)을 마네킹 기준선에
-    g_y = 0 if g_align == "top" else round(g_row * s)
-    m_y = anchors[f"{m_align}_y"]
-    H = anchors["image_size"][1]
-    y = round(m_y - g_y + float(fit.get("dy", 0)) * H)
-    # 가로: 옷 기준 줄의 가운데를 마네킹 가운데에
-    row = np.asarray(g.split()[-1])[min(g.height - 1, max(0, g_y + (0 if g_align != "top" else round(g.height * 0.6))))] > 127
-    xs = np.nonzero(row)[0]
-    gc = (xs[0] + xs[-1]) / 2 if len(xs) else g.width / 2
+    sx = s * (FLAT_WRAP if (ppc and flat) else 1.0)  # 펼친 사진만 가로를 줄여 입은 폭으로. 토르소 사진은 이미 정면 모습
+    g = garment.convert("RGBa").resize((max(1, round(garment.width * sx)), max(1, round(garment.height * s))), Image.LANCZOS).convert("RGBA")
+    y = round(m_y - round(g_y * s) + float(fit.get("dy", 0)) * H)
+    # 가로: 옷 몸통(높이 20~60%) 줄들의 가운데 중앙값을 마네킹 가운데에
+    al = np.asarray(g.split()[-1]) > 127
+    cs = [(xs[0] + xs[-1]) / 2 for yy in range(int(g.height * 0.2), max(int(g.height * 0.2) + 1, int(g.height * 0.6)))
+          if len(xs := np.nonzero(al[yy])[0])]
+    gc = float(np.median(cs)) if cs else g.width / 2
     x = round(anchors["center_x"] - gc + float(fit.get("dx", 0)) * H)
     layer = Image.new("RGBA", tuple(anchors["image_size"]))
-    layer.alpha_composite(g, (x, y)) if x >= 0 and y >= 0 else layer.paste(g, (x, y), g)
-    return layer, {"scale": round(s, 3), "x": x, "y": y}
+    layer.paste(g, (x, y), g)
+    info.update(scale=round(s, 3), x=x, y=y)
+    if ppc:
+        info["width_cm"] = round(g.width / ppc, 1)  # 그려진 옷 전체 폭(소매 포함)
+    return layer, info
 
 
 # ---------- 확인용 ----------
@@ -363,6 +404,9 @@ def main():
     ap.add_argument("--items", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--anchors", type=Path, help="손으로 고친 기준선 json (없으면 자동 측정)")
+    ap.add_argument("--height-cm", type=float, default=170.0, help="마네킹 키(머리~발, cm). 실측 사이즈를 px로 바꾸는 기준")
+    ap.add_argument("--fit-by", default="measure", choices=["measure", "photo"],
+                    help="measure: 실측(없으면 상품명별 기본값) 총길이로 크기 결정 / photo: 사진 속 옷 폭으로 (예전 방식)")
     ap.add_argument("--combos", nargs="*", default=[], help="확인용 조합 예: s01+s05 s03+s06")
     ap.add_argument("--publish", action="store_true", help="결과를 ../public/catalog 로 복사 (앱에 반영)")
     args = ap.parse_args()
@@ -378,6 +422,10 @@ def main():
     (out / "anchors.json").write_text(json.dumps(anchors, indent=2), encoding="utf-8")
     draw_anchors(model, anchors).save(out / "anchors.jpg", quality=88)
     print("마네킹 기준선:", {k: v for k, v in anchors.items() if k != "image_size"})
+    ppc = (anchors["bottom"] - anchors["top"]) / args.height_cm if args.fit_by == "measure" else None
+    if ppc:
+        print(f"마네킹 {args.height_cm:.0f}cm → 1cm = {ppc:.2f}px. 몸 폭(정면): 가슴 {anchors['chest_w'] / ppc:.0f}cm, "
+              f"허리 {anchors['waist_w'] / ppc:.0f}cm, 골반 {anchors['hip_w'] / ppc:.0f}cm")
 
     items = json.loads(args.items.read_text(encoding="utf-8"))
     base_dir = args.items.parent
@@ -388,7 +436,8 @@ def main():
         cut, info = cut_garment(Image.open(src))
         (out / "cutouts").mkdir(exist_ok=True)
         cut.save(out / "cutouts" / f"{pid}.png", optimize=True)
-        layer, pos = place(cut, cat, anchors, it.get("fit"))
+        layer, pos = place(cut, cat, anchors, it.get("fit"), measure=it.get("measure"), ppc=ppc, title=it["title"],
+                           flat=info["form"] < 0.02)
         (out / "layers").mkdir(exist_ok=True)
         layer.save(out / "layers" / f"{pid}.png", optimize=True)
         layers[pid] = (cat, layer)
@@ -396,7 +445,9 @@ def main():
         thumb.thumbnail((900, 1200), Image.LANCZOS)
         (out / "images").mkdir(exist_ok=True)
         thumb.save(out / "images" / f"{pid}.jpg", quality=88)
-        print(f"{pid} {cat}: 배경 {info['bg']} 허용 {info['tol']}, 떨어진 조각 {info['dropped']:.1%}, 안쪽 구멍 {info['holes']:.1%}, 토르소 {info['form']:.1%}, 배율 {pos['scale']}, 위치 ({pos['x']},{pos['y']})")
+        print(f"{pid} {cat}: 배경 {info['bg']} 허용 {info['tol']}, 떨어진 조각 {info['dropped']:.1%}, 안쪽 구멍 {info['holes']:.1%}, 토르소 {info['form']:.1%}, 배율 {pos['scale']}, 위치 ({pos['x']},{pos['y']})"
+              + (f", 총길이 {pos['length_cm']:.0f}cm({pos['src']}), 그려진 폭 {pos['width_cm']}cm" if ppc else "")
+              + (f", 밑위 {pos['rise_cm']}cm" if pos.get("rise_cm") else ""))
         checker = Image.new("RGB", cut.size, (205, 225, 205))
         checker.paste(cut, (0, 0), cut)
         cut_panels.append((f"{pid} 원본", Image.open(src)))

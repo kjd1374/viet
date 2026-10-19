@@ -51,6 +51,45 @@ def list_products(site: str, cate_no: int, pages: int, delay: float) -> list[int
     return nos
 
 
+SIZE_KEYS = {  # 표 머리글 → 표준 이름 (단위 cm, 단면 기준)
+    "length": ("총길이", "총장", "기장", "전체길이"), "shoulder": ("어깨",), "chest": ("가슴",), "sleeve": ("소매",),
+    "waist": ("허리",), "hip": ("엉덩이", "힙"), "thigh": ("허벅지",), "rise": ("밑위",), "hem": ("밑단",),
+}
+PREFERRED = ("FREE", "F", "M", "S", "55", "26")
+
+
+def parse_size_table(page: str) -> dict | None:
+    """카페24 '사이즈 정보'(에디봇) 표 → {"size": 이름, "length": cm, "chest": cm, ...}. 없으면 None."""
+    i = page.find("edinfo-sizediv")
+    if i < 0:
+        return None
+    m = re.search(r"<table>(.*?)</table>", page[i:], re.S)
+    if not m:
+        return None
+    cell = lambda x: html.unescape(re.sub(r"<[^>]+>", "", x)).strip()  # noqa: E731
+    head = [cell(h) for h in re.findall(r"<th[^>]*scope=\"col\"[^>]*>(.*?)</th>", m[1], re.S)]
+    rows = []
+    for tr in re.findall(r"<tbody>.*?</tbody>", m[1], re.S)[0:1]:
+        for r in re.findall(r"<tr>(.*?)</tr>", tr, re.S):
+            name = cell((re.search(r"<th[^>]*>(.*?)</th>", r, re.S) or [None, ""])[1])
+            vals = [cell(v) for v in re.findall(r"<td[^>]*>(.*?)</td>", r, re.S)]
+            rows.append((name, vals))
+    if not rows or len(head) < 2:
+        return None
+    keys = [re.sub(r"^\s*\d+\s*[.)]\s*", "", h) for h in head[1:]]
+    row = next((r for p in PREFERRED for r in rows if r[0].upper() == p), rows[len(rows) // 2])
+    out = {"size": row[0]}
+    for k, v in zip(keys, row[1]):
+        num = re.search(r"\d+(?:\.\d+)?", v)
+        if not num:
+            continue
+        for std, names in SIZE_KEYS.items():
+            if std not in out and any(n in k for n in names):
+                out[std] = float(num[0])
+    out["sizes"] = [r[0] for r in rows]
+    return out if len(out) > 2 else None
+
+
 def product_shot_score(img: Image.Image) -> tuple[float, str]:
     """상품컷 같으면 양수 점수. (점수, 이유)"""
     w, h = img.size
@@ -88,14 +127,25 @@ def product_shot_score(img: Image.Image) -> tuple[float, str]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--site", required=True)
-    ap.add_argument("--cat", action="append", required=True, help="앱분류=카테고리번호, 예: top=25")
+    ap.add_argument("--cat", action="append", default=[], help="앱분류=카테고리번호, 예: top=25")
     ap.add_argument("--per", type=int, default=5)
     ap.add_argument("--pages", type=int, default=2, help="카테고리 목록에서 볼 페이지 수")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--delay", type=float, default=0.4, help="요청 사이 쉬는 초")
     ap.add_argument("--source-name", default="")
+    ap.add_argument("--update-sizes", action="store_true", help="이미 받은 <out>/items.json 상품들의 실측 사이즈만 다시 읽어 넣는다")
     a = ap.parse_args()
+    if a.update_sizes:
+        path = a.out / "items.json"
+        items = json.loads(path.read_text(encoding="utf-8"))
+        for it in items:
+            m = parse_size_table(get(it["sourceUrl"], a.delay).decode("utf-8", "ignore"))
+            if m:
+                it["measure"] = m
+            print(it["id"], m, flush=True)
+        path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+        return
     site = a.site.rstrip("/")
     a.out.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(a.seed)
@@ -117,6 +167,7 @@ def main():
                 print(f"  {no} 건너뜀(세트 또는 원피스 아님): {title[:40]}", flush=True)
                 continue
             price = re.search(r'product_price_text">\s*([\d,]+)', page)
+            measure = parse_size_table(page)
             main_img = re.search(r'<meta property="og:image" content="([^"]*)"', page)
             details = list(dict.fromkeys(re.findall(r'src="(/web/upload/NNEditor/[^"]+\.(?:jpe?g|png|webp))"', page)))
             best, best_score, tried = None, 0.0, 0
@@ -142,7 +193,7 @@ def main():
                 "id": pid, "title": re.sub(r"\s+", " ", title).strip(), "priceAmount": int(price[1].replace(",", "")) if price else 0,
                 "currency": "KRW", "category": cat, "garmentImage": f"{pid}.jpg", "photoType": "flat-lay",
                 "sourceName": a.source_name or site.split("//")[-1], "sourceUrl": f"{site}/product/detail.html?product_no={no}",
-                "tradeType": "retail", "isDummy": True,
+                "tradeType": "retail", "isDummy": True, **({"measure": measure} if measure else {}),
             })
             got += 1
             print(f"  {pid} 상품컷 찾음 ({tried}장째): {title[:50]}", flush=True)

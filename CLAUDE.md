@@ -163,6 +163,17 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
   ② 토르소 조각이 어깨에 조금 남음(t6575, d6502) ③ 긴소매는 아래로 곧게 내려와 마네킹 팔과 각도가 안 맞음 ④ 펼친 니트는 작고 높게 붙음.
 - 판단: 생성 AI는 필요 없지만, 토르소 컷을 안정적으로 처리하려면 옷 영역 분할 모델(예전 FashnHumanParser 같은 종류, CPU 1초 내외)이 필요할 가능성 큼.
 
+## 실측 사이즈 기준 배치 (2026-10-19) — 사용자 요청: "사이즈 영역을 정하고 옷을 그 사이즈에 맞춰라"
+- 카페24 상세 페이지의 "사이즈 정보"(에디봇) 표가 HTML 글자로 있음 → crawl_cafe24.py가 파싱(총길이·어깨·가슴·소매·허리·엉덩이·허벅지·밑위·밑단, cm 단면).
+  사이즈가 여러 개면 FREE→M→S 순으로 하나 고름. 이미 받은 상품은 `--update-sizes`로 표만 다시 읽음. 20개 모두 실측 있음.
+- flat_layers.py 기본이 `--fit-by measure`: 마네킹 키 `--height-cm 170` → 1cm=8.41px (몸 정면 폭 가슴 26·허리 21·골반 33cm).
+  크기 = 실측 총길이(cm)÷사진 속 옷 높이. 세로 위치: 상의·원피스·아우터는 옷 맨 위를 목 아래(collar_y)에,
+  하의는 가랑이 높이 − 밑위×0.9 (밑위 없으면 band_y). 실측 없으면 상품명 낱말별 기본 총길이(DEFAULT_LENGTH).
+  바닥에 펼친 사진(토르소 아님)은 가로만 0.78배(FLAT_WRAP: 펼친 폭≈둘레의 절반 → 입었을 때 정면 폭).
+- 결과(out/real-test3/combos.jpg): 바지가 발목까지, 반바지는 허벅지 중간, 미니 원피스 길이 등 크기·위치가 일관되게 맞음.
+  남은 문제: 토르소 조각이 어깨에 남는 것(t6575, d6398), 흰 옷 깨짐, 상품컷 속 집게·택(b6340, b6045),
+  토르소에 입힌 긴소매가 몸통 옆으로 곧게 내려와 마네킹 팔과 따로 놂.
+
 ## 최종 품질 테스트 (2026-10-07) — 다음 단계 결정
 - 재실행 명령: `cd ~/viet/factory && .venv/bin/python make_layers.py --model in-sample/m01.png --items in-sample/items.json --out out/final-test2 --steps 20 --limit 1`
 - 결과: out/final-test/compare.png. 합성본이 raw와 거의 같은 수준으로 깨끗 → 레이어 방식 유지.
