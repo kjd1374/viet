@@ -4,6 +4,7 @@
 
 - 탐색(스와이프) 카드: 대표 이미지(main_<id>.jpg, 보통 모델 착용컷). 없으면 상품컷.
 - 코디 보드: 옷만 찍힌 상품컷(<id>.jpg).
+- 구매 정보의 착용 사진(참고용): 모델 착용컷(photos/<id>_N.jpg, crawl_cafe24.py가 모음).
 - 사진은 긴 변 1200px 이하 JPEG로 줄여 넣는다. public/catalog 는 저장소에 올리지 않는다 (.gitignore).
 """
 
@@ -43,11 +44,17 @@ def main():
         save_small(shot, a.out / "board" / f"{pid}.jpg")
         save_small(main if main.exists() else shot, a.out / "images" / f"{pid}.jpg")
         sizes = (it.get("measure") or {}).get("sizes")
+        photos = []
+        for name in it.get("modelImages", []):
+            dst = f"photos/{Path(name).name}"
+            save_small(src_dir / name, a.out / dst, side=1000)
+            photos.append(dst)
         products.append({
             "id": pid, "title": it["title"], "priceAmount": it["priceAmount"], "currency": it.get("currency", "USD"),
             "sourceName": it["sourceName"], **({"sourceUrl": it["sourceUrl"]} if it.get("sourceUrl") else {}),
             "tradeType": it.get("tradeType", "retail"), **({"sizes": sizes} if sizes else {}),
             "category": it["category"], "imageUrl": f"images/{pid}.jpg", "boardImageUrl": f"board/{pid}.jpg",
+            **({"modelImageUrls": photos} if photos else {}),
             "isDummy": it.get("isDummy", True),
         })
     (a.out / "catalog.json").write_text(json.dumps({"products": products}, ensure_ascii=False, indent=2), encoding="utf-8")

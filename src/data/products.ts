@@ -19,6 +19,8 @@ export type Product = {
   category: Category;
   /** 코디 보드에 놓을 옷만 찍힌 상품컷(흰 배경). 없으면 imageUrl을 쓴다. */
   boardImageUrl?: string;
+  /** 판매처 상세 페이지의 모델 착용 사진 (구매 정보에서 참고용으로 보여 준다) */
+  modelImageUrls?: string[];
   /** (예전 방식) 고정 모델 캔버스에 정렬된 투명 착용 레이어. 코디 보드에서는 쓰지 않는다. */
   layerUrl?: string;
 };

@@ -7,7 +7,8 @@
   모델컷, 색상 모음, 디테일 확대, 안내문은 걸러낸다.
 - 세트 상품(상의+하의)은 한 장에 옷이 둘이라 건너뛴다.
 - 받은 사진은 저장소에 올리지 않는다 (.gitignore: factory/in-sample/). 요청 사이에 쉬어서 사이트에 부담을 주지 않는다.
-- 결과: <out>/<id>.jpg (상품컷), <out>/main_<id>.jpg (대표 이미지, 비교용), <out>/items.json (flat_layers.py 입력 형식)
+- 결과: <out>/<id>.jpg (상품컷), <out>/main_<id>.jpg (대표 이미지), <out>/photos/<id>_N.jpg (모델 착용컷, 참고용),
+  <out>/items.json (publish_board.py 입력)
 """
 
 from __future__ import annotations
@@ -124,6 +125,48 @@ def product_shot_score(img: Image.Image) -> tuple[float, str]:
     return contrast, "상품컷"
 
 
+def is_model_shot(img: Image.Image) -> bool:
+    """모델 착용컷: 세로형, 사람 피부가 보이고, 배경이 흰 단색이 아니며(상품컷 아님), 색 편차가 큰 사진.
+    색상 모음·디테일 확대·안내문·상품컷은 걸러진다."""
+    w, h = img.size
+    if h < w * 1.05 or w < 500:
+        return False
+    a = np.asarray(img.convert("RGB").resize((200, round(200 * h / w)))).astype(np.float32)
+    band = np.concatenate([a[:6].reshape(-1, 3), a[-6:].reshape(-1, 3), a[:, :6].reshape(-1, 3), a[:, -6:].reshape(-1, 3)])
+    if np.median(band.mean(axis=1)) > 240 and band.mean(axis=1).std() < 12:
+        return False  # 흰 단색 배경 = 상품컷·안내문
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    skin = (r > 95) & (g > 40) & (b > 20) & (r > g) & (r > b) & ((r - np.minimum(g, b)) > 15) & (abs(r - g) > 15)
+    return skin.mean() > 0.04 and a.std() > 35
+
+
+def collect_model_photos(page: str, site: str, delay: float, want: int, out_dir: Path, pid: str) -> list[str]:
+    """상세 이미지에서 모델 착용컷을 모아 골고루 want장 고른다 (비슷한 연속 컷이 몰리지 않게)."""
+    details = list(dict.fromkeys(re.findall(r'src="(/web/upload/NNEditor/[^"]+\.(?:jpe?g|png|webp))"', page)))
+    found: list[Image.Image] = []
+    for u in details:
+        try:
+            im = Image.open(io.BytesIO(get(site + u, delay))).convert("RGB")
+        except Exception:  # noqa: BLE001
+            continue
+        if is_model_shot(im):
+            found.append(im)
+        elif found and len(found) >= want * 2:
+            break  # 모델컷 구간이 끝났고 충분히 모았으면 그만
+    if not found:
+        return []
+    idx = sorted({round(i * (len(found) - 1) / max(1, want - 1)) for i in range(min(want, len(found)))})
+    names = []
+    (out_dir / "photos").mkdir(parents=True, exist_ok=True)
+    for k, i in enumerate(idx, 1):
+        name = f"photos/{pid}_{k}.jpg"
+        im = found[i]
+        im.thumbnail((1000, 1400), Image.LANCZOS)
+        im.save(out_dir / name, quality=86)
+        names.append(name)
+    return names
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--site", required=True)
@@ -135,7 +178,19 @@ def main():
     ap.add_argument("--delay", type=float, default=0.4, help="요청 사이 쉬는 초")
     ap.add_argument("--source-name", default="")
     ap.add_argument("--update-sizes", action="store_true", help="이미 받은 <out>/items.json 상품들의 실측 사이즈만 다시 읽어 넣는다")
+    ap.add_argument("--photos", type=int, default=5, help="상품마다 모을 모델 착용컷 수 (참고 사진, 0=안 모음)")
+    ap.add_argument("--update-photos", action="store_true", help="이미 받은 <out>/items.json 상품들의 모델 착용컷만 다시 모은다")
     a = ap.parse_args()
+    site = a.site.rstrip("/")
+    if a.update_photos:
+        path = a.out / "items.json"
+        items = json.loads(path.read_text(encoding="utf-8"))
+        for it in items:
+            page = get(it["sourceUrl"], a.delay).decode("utf-8", "ignore")
+            it["modelImages"] = collect_model_photos(page, site, a.delay, a.photos, a.out, it["id"])
+            print(it["id"], f"착용컷 {len(it['modelImages'])}장", flush=True)
+        path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+        return
     if a.update_sizes:
         path = a.out / "items.json"
         items = json.loads(path.read_text(encoding="utf-8"))
@@ -146,7 +201,6 @@ def main():
             print(it["id"], m, flush=True)
         path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
         return
-    site = a.site.rstrip("/")
     a.out.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(a.seed)
     items, log = [], []
@@ -187,6 +241,7 @@ def main():
                 continue
             pid = f"{cat[0]}{no}"
             best.save(a.out / f"{pid}.jpg", quality=92)
+            photos = collect_model_photos(page, site, a.delay, a.photos, a.out, pid) if a.photos else []
             if main_img:
                 Image.open(io.BytesIO(get(main_img[1], a.delay))).convert("RGB").save(a.out / f"main_{pid}.jpg", quality=88)
             items.append({
@@ -194,6 +249,7 @@ def main():
                 "currency": "KRW", "category": cat, "garmentImage": f"{pid}.jpg", "photoType": "flat-lay",
                 "sourceName": a.source_name or site.split("//")[-1], "sourceUrl": f"{site}/product/detail.html?product_no={no}",
                 "tradeType": "retail", "isDummy": True, **({"measure": measure} if measure else {}),
+                **({"modelImages": photos} if photos else {}),
             })
             got += 1
             print(f"  {pid} 상품컷 찾음 ({tried}장째): {title[:50]}", flush=True)

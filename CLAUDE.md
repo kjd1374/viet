@@ -174,6 +174,10 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
   아우터를 안 고르면 한 줄(가운데)로 줄이고 아래에 "+ 아우터". 빈 칸을 누르면 그 탭으로, 옷 카드를 누르면 구매 정보.
   자리(slot)마다 key가 고정이라 상의만 바꾸면 하의 카드 DOM은 그대로. 고르기 줄의 썸네일도 상품컷(object-fit: contain, 흰 배경).
 - 데이터: Product에 boardImageUrl(상품컷, 없으면 imageUrl), currency(USD|KRW|VND, KRW는 "24,000원"), layerUrl은 선택.
+- 구매 정보(Sheet.tsx, 2026-10-19 사용자 요청): "원 판매처 링크/열기" 줄 삭제. 대신 "착용 사진 · 참고용"
+  가로로 넘기는 사진 줄(modelImageUrls) = 판매처 상세 페이지의 모델 착용컷. sourceUrl 데이터는 남겨 둠(화면에만 안 보임).
+  크롤러가 상품마다 착용컷 최대 5장을 골고루 고름(is_model_shot: 세로형·피부 4%↑·색 편차 큼·흰 단색 배경 아님).
+  이미 받은 상품은 `python3 crawl_cafe24.py --site https://classic-blanc.com --out in-sample/real --update-photos`(약 8분).
   catalog.json의 model은 이제 선택(없어도 됨).
 - 크롤링 → 앱 반영:
   `cd ~/viet/factory && python3 crawl_cafe24.py --site https://classic-blanc.com --cat top=25 --cat bottom=58 --cat dress=26 --cat outer=57 --per 5 --out in-sample/real --source-name 클래식블랑`

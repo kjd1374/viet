@@ -445,6 +445,31 @@ button:disabled { cursor: default; opacity: 0.4; }
 .sheet-hero img { width: 96px; height: 128px; border-radius: 12px; object-fit: cover; background: var(--surface-2); flex: none; }
 .sheet-hero h3 { margin: 0 0 6px; font-size: 18px; line-height: 1.3; }
 .sheet-price { font-size: 22px; font-weight: 800; }
+/* 착용 사진: 가로로 넘겨 보기 (판매처 상세 페이지의 모델컷, 참고용) */
+.sheet-photos { margin: 18px 0 0; }
+.sheet-photos h4 { margin: 0 0 8px; font-size: 15px; }
+.sheet-photos h4 span { margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.photo-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  margin: 0 -20px;
+  padding: 0 20px 4px;
+  scroll-padding: 0 20px; /* 첫 사진이 화면 끝에 붙지 않게 */
+  scrollbar-width: none;
+}
+.photo-strip::-webkit-scrollbar { display: none; }
+.photo-strip img {
+  flex: none;
+  width: min(62%, 260px);
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 12px;
+  background: var(--surface-2);
+  scroll-snap-align: start;
+}
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 18px 0 0; padding: 14px 0 0; border-top: 1px solid var(--line); font-size: 15px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; font-weight: 600; }

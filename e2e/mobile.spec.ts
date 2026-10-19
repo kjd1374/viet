@@ -178,7 +178,7 @@ test.describe('4단계 · 구매 정보', () => {
     await release();
     await expect(page.getByTestId('sheet')).toBeVisible();
     await expect(page.getByTestId('sheet')).toHaveAttribute('data-product-id', 'p002');
-    await expect(page.getByTestId('sheet').getByText('없음 (샘플 데이터)')).toBeVisible();
+    await expect(page.getByTestId('sheet').getByText('원 판매처')).toHaveCount(0); // 판매처 링크는 보여 주지 않는다
     await page.waitForTimeout(350);
     await page.screenshot({ path: `${SHOTS}/10-sheet.png` });
     expect(await stateOf(page, 'p002')).toBe('unseen');

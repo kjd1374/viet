@@ -95,6 +95,19 @@ export function Sheet({ product, state, context, onClose }: Props) {
             </div>
           </div>
 
+          {product.modelImageUrls && product.modelImageUrls.length > 0 && (
+            <section className="sheet-photos" aria-label="착용 사진">
+              <h4>
+                착용 사진 <span>참고용 · {product.modelImageUrls.length}장</span>
+              </h4>
+              <div className="photo-strip">
+                {product.modelImageUrls.map((u, i) => (
+                  <img key={u} src={u} alt={`착용 사진 ${i + 1}`} loading="lazy" draggable={false} />
+                ))}
+              </div>
+            </section>
+          )}
+
           <dl className="facts">
             <dt>출처</dt>
             <dd>{product.sourceName}</dd>
@@ -106,14 +119,6 @@ export function Sheet({ product, state, context, onClose }: Props) {
                 <dd>{product.sizes.join(' · ')}</dd>
               </>
             )}
-            <dt>원 판매처 링크</dt>
-            <dd>
-              {product.sourceUrl ? (
-                <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer">원 판매처 열기</a>
-              ) : (
-                <span className="muted">없음 (샘플 데이터)</span>
-              )}
-            </dd>
             <dt>현재 상태</dt>
             <dd>{STATE_LABEL[state]}</dd>
           </dl>

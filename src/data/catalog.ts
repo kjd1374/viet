@@ -19,6 +19,7 @@ type CatalogFile = {
     category: Category;
     imageUrl: string;
     boardImageUrl?: string;
+    modelImageUrls?: string[];
     layerUrl?: string;
     isDummy?: boolean;
   }[];
@@ -72,6 +73,9 @@ export async function loadCatalog(): Promise<'file' | 'dummy'> {
       category: p.category,
       imageUrl: abs(p.imageUrl),
       ...(p.boardImageUrl ? { boardImageUrl: abs(p.boardImageUrl) } : {}),
+      ...(Array.isArray(p.modelImageUrls) && p.modelImageUrls.length
+        ? { modelImageUrls: p.modelImageUrls.filter((u) => typeof u === 'string').map(abs) }
+        : {}),
       ...(p.layerUrl ? { layerUrl: abs(p.layerUrl) } : {}),
     }));
     replaceCatalog(
