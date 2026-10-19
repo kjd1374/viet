@@ -133,6 +133,23 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
   그래도 남으면 레이어를 "옷"과 "밑깔림(가린 자리 채움)" 두 장으로 나눠 앱에서 밑깔림을 먼저 그리게(src/components/Styling.tsx) 변경.
   대량 생산은 구독 한도 대신 OpenAI API(gpt-image-1-mini 중간 화질 1024x1536 약 $0.015/장) 또는 FASHN API($0.075) 검토.
 
+## 마네킹 + 상품 사진 얹기 방식 (2026-10-19 시험 중) — AI 생성 없음
+- 사용자 방향: AI가 입힌 듯한 사실감은 지금 목표 아님. 기본 마네킹 위에서 실제 상품을 마음대로 조합해 보는 게 핵심.
+  크롤링 데이터는 대부분 옷만 찍힌 사진 → 배경(·치수 표시)만 지우면 레이어가 된다는 판단.
+- factory/flat_layers.py (시스템 python3, Pillow·numpy만): 배경 제거(테두리에서 이어진 배경색 + 바닥 그림자, 떨어진 글자 조각 버림,
+  가장자리 2px 안쪽으로 줄이고 안쪽 색으로 채움) → 마네킹 실루엣에서 기준선 자동 측정(anchors.json, 손으로 고쳐 --anchors 가능)
+  → 카테고리별 규칙(상의: 몸통 폭→가슴 폭×1.15, 옷깃→목 아래 / 하의: 허리밴드 폭→밴드 폭×1.12 / 원피스: 가장 좁은 줄→허리)으로 배치.
+  상품별 미세 조정 items.json "fit": {dx, dy, scale}. 결과는 make_layers와 같은 형식 + fitting.html(더블클릭으로 조합 시험).
+  `cd ~/viet/factory && python3 flat_layers.py --mannequin in-sample/flat/mannequin.png --items in-sample/flat/items_partial.json --out out/<새폴더> --combos s01+s05`
+- 마네킹: in-sample/flat/mannequin.png (GPT로 생성한 얼굴 없는 회색 마네킹, 1024x1536).
+- 시험 입력: 옷만 찍힌 원본 3장(garment7 티, garment3 블라우스, garment5 스커트) + GPT로 만든 펼친 사진 2장(flat_s03, flat_s04).
+  사용자 지적: GPT로 만든 시험 사진은 실제 크롤링 사진과 달라 의미가 적음 → 나머지 생성 중단. **다음은 실제 크롤링 상품 사진으로 시험**.
+- 결과(out/flat-try/combos.jpg): 배치는 종이 인형 수준으로 동작. 확인된 문제:
+  ① 흰 옷 + 흰 배경(스커트): 색만으로는 경계가 안 나뉘어 가장자리가 뜯김 ② 옷 안쪽 구멍(홀터넥 목 부분)의 흰 배경이 남음
+  ③ 펼친 소매는 마네킹 팔 각도와 안 맞음(사용자 기준상 허용). ①은 배경 제거 모델(rembg 등, 생성 AI 아님)이 필요할 수 있음.
+- Codex: 2026-10-09 brew로 CLI 0.162 설치됨(/opt/homebrew/bin/codex). ChatGPT 계정에서 `-m gpt-5.5` 거부 → gpt_tryon.py는 기본 모델 사용,
+  추론 강도 low. 2026-10-19 구독 사용량(7일) 58%.
+
 ## 최종 품질 테스트 (2026-10-07) — 다음 단계 결정
 - 재실행 명령: `cd ~/viet/factory && .venv/bin/python make_layers.py --model in-sample/m01.png --items in-sample/items.json --out out/final-test2 --steps 20 --limit 1`
 - 결과: out/final-test/compare.png. 합성본이 raw와 거의 같은 수준으로 깨끗 → 레이어 방식 유지.

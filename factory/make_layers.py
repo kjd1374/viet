@@ -95,7 +95,7 @@ def main():
     ap.add_argument("--engine", default="fashn", choices=["fashn", "gpt"],
                     help="착용 생성기. fashn: 맥에서 FASHN 1.5 직접 실행(576x864, 약 4분/벌). "
                          "gpt: ChatGPT 구독의 Codex 이미지 생성(1024x1536, 약 1분/벌, 구독 사용량 소모)")
-    ap.add_argument("--gpt-model", default=gpt_tryon.DEFAULT_MODEL, help="--engine gpt 일 때 Codex 모델")
+    ap.add_argument("--gpt-model", default=gpt_tryon.DEFAULT_MODEL, help="--engine gpt 일 때 Codex 모델 (기본: Codex 설정의 기본 모델)")
     ap.add_argument("--device", default="auto", help="auto | mps | cuda | cpu")
     ap.add_argument("--dtype", "--precision", dest="dtype", default="auto", choices=["auto", "fp32", "bf16", "fp16"],
                     help="정밀도. auto: 맥 GPU는 bf16(메모리 절반, 원본 착용 이미지 정상 확인), 그 외 fp32")

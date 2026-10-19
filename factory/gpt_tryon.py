@@ -18,8 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_CODEX = "/Applications/Codex.app/Contents/Resources/codex"
-# 맥 Codex 앱에 들어 있는 CLI(0.137 alpha)는 기본 모델(gpt-6-astra)을 거부한다 → 지원되는 모델을 지정. 앱을 업데이트하면 바꿀 수 있다
-DEFAULT_MODEL = "gpt-5.5"
+# None = Codex 설정(~/.codex/config.toml)의 기본 모델. 2026-10-19 기준 ChatGPT 계정에서는 gpt-5.5 지정이 거부되고
+# brew의 최신 CLI(0.162) + 기본 모델로 동작. 구독 사용량을 아끼려고 추론 강도는 낮게 둔다.
+DEFAULT_MODEL: str | None = None
+REASONING = "low"
 
 WHAT = {
     "top": ("top", "in place of the top she is currently wearing. Keep her current bottoms (shorts) exactly as they are"),
@@ -93,16 +95,17 @@ def _usage_from_events(lines: list[str]) -> str:
     return ", ".join(parts)
 
 
-def tryon_gpt(model_image: Path, garment_image: Path, category: str, title: str, out_path: Path, *,
-              size: tuple[int, int] = (1024, 1536), codex: str | None = None, gpt_model: str = DEFAULT_MODEL,
-              timeout: int = 600, retries: int = 1) -> GptResult:
+def codex_image(images: list[Path], prompt: str, out_path: Path, *, codex: str | None = None,
+                gpt_model: str | None = DEFAULT_MODEL, timeout: int = 600, retries: int = 1) -> GptResult:
+    """Codex 내장 이미지 생성 한 번. prompt는 결과를 현재 폴더의 result.png로 저장하라고 지시해야 한다."""
     codex = codex or find_codex()
     work = out_path.parent / "gpt_work" / out_path.stem
     work.mkdir(parents=True, exist_ok=True)
     out_name = "result.png"
-    prompt = build_prompt(category, title, out_name, size)
-    cmd = [codex, "exec", "--json", "-m", gpt_model, "--skip-git-repo-check", "-s", "workspace-write", "-C", str(work),
-           "-i", str(Path(model_image).resolve()), "-i", str(Path(garment_image).resolve())]
+    cmd = [codex, "exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-C", str(work),
+           "-c", f'model_reasoning_effort="{REASONING}"'] + (["-m", gpt_model] if gpt_model else [])
+    for im in images:
+        cmd += ["-i", str(Path(im).resolve())]
     last_err = ""
     for attempt in range(retries + 1):
         (work / out_name).unlink(missing_ok=True)
@@ -121,7 +124,12 @@ def tryon_gpt(model_image: Path, garment_image: Path, category: str, title: str,
         last_err = last_err if isinstance(last_err, str) else last_err[0]
         if "usage limit" in last_err.lower() or "rate limit" in last_err.lower():
             break  # 사용량 한도: 재시도해도 소용없음
-    raise RuntimeError(f"GPT 생성 실패 ({garment_image.name}): {last_err[:300]}  (로그: {work})")
+    raise RuntimeError(f"GPT 생성 실패 ({out_path.name}): {last_err[:300]}  (로그: {work})")
+
+
+def tryon_gpt(model_image: Path, garment_image: Path, category: str, title: str, out_path: Path, *,
+              size: tuple[int, int] = (1024, 1536), **kw) -> GptResult:
+    return codex_image([model_image, garment_image], build_prompt(category, title, "result.png", size), out_path, **kw)
 
 
 def main():
