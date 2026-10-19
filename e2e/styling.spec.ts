@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dismissGuide, open, SHOTS } from './helpers';
+import { dismissGuide, open, SHOTS, waitForSave } from './helpers';
 
 const SAVE = ['p001', 'p002', 'p007', 'p008', 'p009', 'p004', 'p005', 'p006'];
 
@@ -83,6 +83,7 @@ test('원피스·아우터 규칙, 새로고침 유지, 입은 옷에서 구매 
   await page.waitForTimeout(250);
   await page.screenshot({ path: `${SHOTS}/44-styling-jacket.png` });
 
+  await waitForSave(page);
   await page.reload();
   await expect(page.getByTestId('outfit-board')).toBeVisible();
   expect(await layers(page)).toEqual(['outer:p005', 'top:p001', 'bottom:p009']);

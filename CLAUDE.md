@@ -179,11 +179,14 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
   `cd ~/viet/factory && python3 crawl_cafe24.py --site https://classic-blanc.com --cat top=25 --cat bottom=58 --cat dress=26 --cat outer=57 --per 5 --out in-sample/real --source-name 클래식블랑`
   `python3 publish_board.py --items in-sample/real/items.json` → public/catalog (탐색 카드 = 대표 모델컷, 보드 = 상품컷. 저장소에 안 올림)
   `cd ~/viet && npm run dev` (node_modules 설치됨, 약 110MB)
-- 테스트: `npx tsc -p .`, `npx vitest run`(25개 통과), `npx playwright test e2e/styling.spec.ts`(4개 통과).
+- 테스트: `npx tsc -p .`, `npx vitest run`(26개 통과), `npx playwright test`(30개 통과).
   playwright.config.ts: 맥은 설치된 Google Chrome(channel chrome), Windows는 Edge. PW_CHANNEL로 바꿀 수 있음.
   e2e는 docs/screenshots를 다시 그린다 → 바꾼 화면(40~44 styling)만 커밋하고 나머지는 git checkout으로 되돌릴 것.
-- **기존부터 실패하는 e2e 2개(맥 Chrome)**: mobile.spec "기기 저장 실패 → 되돌림 → 다시 시도", "안내 숨기기는 재접속 후 유지".
-  보드 변경 전 코드로도 똑같이 실패함을 확인. 스와이프 "왼쪽 스와이프 = 삭제"는 가끔 실패(재실행 시 통과).
+- e2e 전체 30개 통과(2026-10-19, 3회 연속). 예전 실패 2개 + 가끔 실패 1개의 원인은 저장 경합:
+  화면은 저장보다 먼저 바뀌고(낙관적 갱신) 테스트가 그 즉시 새로고침 → 진행 중인 IndexedDB 기록이 페이지와 함께 취소됨
+  (맥 Chrome은 새로고침이 빨라 드러남). 안내 숨기기·코디 설정 저장(saveMeta)은 기다릴 방법조차 없었음.
+  수정: appStore.saveMeta를 결정 저장과 같은 직렬 체인(writeChain)에 넣어 flush()가 설정까지 기다리게 함,
+  e2e helpers의 waitForSave(page)로 "유지되는지" 보는 새로고침 앞에서 기다림. 오프라인 "새로고침 직전 동작" 시험은 일부러 안 기다림.
 
 ## 실측 사이즈 기준 배치 (2026-10-19) — 사용자 요청: "사이즈 영역을 정하고 옷을 그 사이즈에 맞춰라"
 - 카페24 상세 페이지의 "사이즈 정보"(에디봇) 표가 HTML 글자로 있음 → crawl_cafe24.py가 파싱(총길이·어깨·가슴·소매·허리·엉덩이·허벅지·밑위·밑단, cm 단면).

@@ -13,6 +13,7 @@ import {
   topId,
   touchHold,
   touchSwipe,
+  waitForSave,
 } from './helpers';
 
 test.describe('1단계 · 첫 화면', () => {
@@ -53,6 +54,7 @@ test.describe('2단계 · 좌우 스와이프와 보관함', () => {
     await release();
     await expect.poll(() => topId(page)).toBe('p002');
     expect(await stateOf(page, 'p001')).toBe('deleted');
+    await waitForSave(page);
     await page.reload();
     await expect(page.getByTestId('top-card')).toBeVisible();
     expect(await topId(page)).toBe('p002');
@@ -338,6 +340,7 @@ test.describe('5단계 · 속도와 동기화 (모의 서버)', () => {
     await setFaults(page, { localFail: false });
     await page.getByRole('button', { name: '다시 시도' }).click();
     await expect.poll(() => stateOf(page, 'p001')).toBe('saved');
+    await waitForSave(page);
     await page.reload();
     await expect(page.getByTestId('top-card')).toBeVisible();
     expect(await stateOf(page, 'p001')).toBe('saved');
@@ -348,6 +351,7 @@ test.describe('6단계 · 안내와 덱 소진', () => {
   test('안내 숨기기는 재접속 후 유지되고 ? 버튼으로 다시 열 수 있다', async ({ page }) => {
     await open(page);
     await dismissGuide(page, true);
+    await waitForSave(page);
     await page.reload();
     await expect(page.getByTestId('top-card')).toBeVisible();
     await page.waitForTimeout(300);
@@ -358,6 +362,7 @@ test.describe('6단계 · 안내와 덱 소진', () => {
     // 숨기기 해제 → 다음 접속 때 다시 보임
     await page.getByLabel('다음부터 안내 숨기기').uncheck();
     await page.getByRole('button', { name: '시작하기' }).click();
+    await waitForSave(page);
     await page.reload();
     await expect(page.getByTestId('guide')).toBeVisible();
   });
@@ -369,6 +374,7 @@ test.describe('6단계 · 안내와 덱 소진', () => {
     for (let i = 0; i < 20; i++) await press(page, order[i % 4]);
     await expect(page.getByText('모든 상품을 확인했어요')).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/15-deck-empty.png` });
+    await waitForSave(page);
     await page.reload();
     await expect(page.getByText('모든 상품을 확인했어요')).toBeVisible();
     await expect(page.getByTestId('top-card')).toHaveCount(0);

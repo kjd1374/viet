@@ -33,6 +33,12 @@ export const decisions = (page: Page) =>
     ),
   );
 
+/**
+ * 기기 저장(결정·설정)이 끝날 때까지 기다린다. 화면은 저장보다 먼저 바뀌므로, 바로 새로고침하면
+ * 진행 중인 IndexedDB 기록이 페이지와 함께 취소될 수 있다 (맥 Chrome은 새로고침이 빨라 자주 드러남).
+ */
+export const waitForSave = (page: Page) => page.evaluate(() => (window as any).__store.flush());
+
 export const syncState = (page: Page) => page.evaluate(() => (window as any).__store.getState().sync);
 export const serverStats = (page: Page) => page.evaluate(() => ({ ...(window as any).__server.stats }));
 export const setFaults = (page: Page, f: Record<string, unknown>) =>

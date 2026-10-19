@@ -89,12 +89,24 @@ describe('결정 계약', () => {
     expect(s.undo()).toBe(false);
   });
 
-  it('안내 숨기기는 새로고침 후에도 유지된다', async () => {
+  it('안내 숨기기는 새로고침 후에도 유지된다 (flush가 설정 저장까지 기다린다)', async () => {
     const h = harness();
     const s = await h.make();
     s.setGuideHidden(true);
-    await sleep(30);
+    await s.flush();
     expect((await h.make()).getState().guideHidden).toBe(true);
+  });
+
+  it('코디 선택도 flush 후 새로고침하면 그대로다', async () => {
+    const h = harness();
+    const s = await h.make();
+    const outfit = { top: 'p001', bottom: 'p008', dress: null, outer: 'p005' };
+    s.setOutfit(outfit);
+    s.setGuideHidden(true);
+    await s.flush();
+    const r = (await h.make()).getState();
+    expect(r.outfit).toEqual(outfit);
+    expect(r.guideHidden).toBe(true);
   });
 });
 

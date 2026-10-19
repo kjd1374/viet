@@ -168,12 +168,17 @@ export class AppStore {
     this.saveMeta();
   }
 
+  /**
+   * 안내 숨기기·코디 같은 설정도 결정 저장과 같은 직렬 체인에 넣는다.
+   * → 저장 순서가 꼬이지 않고, flush()가 설정 저장까지 기다린다. 실패해도 화면 상태는 그대로 둔다(다음 저장 때 다시 기록).
+   */
   private saveMeta() {
     const { guideHidden, outfit } = this.state;
-    void this.local.setMeta({ scopeId: this.scopeId, guideHidden, outfit }).catch(() => {});
+    const meta = { scopeId: this.scopeId, guideHidden, outfit };
+    this.writeChain = this.writeChain.then(() => this.local.setMeta(meta)).catch(() => {});
   }
 
-  /** 테스트용: 대기 중인 기기 저장이 끝날 때까지 */
+  /** 대기 중인 기기 저장(결정·설정)이 모두 끝날 때까지 */
   flush() {
     return this.writeChain;
   }
