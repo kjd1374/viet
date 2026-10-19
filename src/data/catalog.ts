@@ -1,36 +1,37 @@
 import type { Category } from './figure';
-import { replaceCatalog, type Product, type TradeType } from './products';
+import { replaceCatalog, type Currency, type Product, type TradeType } from './products';
 
 /**
- * public/catalog/catalog.json (레이어 공장 factory/make_layers.py의 출력)을 읽는다.
+ * public/catalog/catalog.json 을 읽는다 (factory/publish_board.py 또는 예전 make_layers.py의 출력).
  * 없거나 형식이 틀리면 내장 더미를 그대로 쓴다. ?catalog=dummy 로 강제할 수 있다 (테스트용).
  */
 type CatalogFile = {
-  model: { imageUrl: string; width: number; height: number; label?: string };
+  model?: { imageUrl: string; width: number; height: number; label?: string };
   products: {
     id: string;
     title: string;
     priceAmount: number;
-    currency?: 'USD';
+    currency?: Currency;
     sourceName: string;
     sourceUrl?: string;
     tradeType: TradeType;
     sizes?: string[];
     category: Category;
     imageUrl: string;
-    layerUrl: string;
+    boardImageUrl?: string;
+    layerUrl?: string;
     isDummy?: boolean;
   }[];
 };
 
 const CATEGORIES: Category[] = ['top', 'bottom', 'dress', 'outer'];
+const CURRENCIES: Currency[] = ['USD', 'KRW', 'VND'];
 
 function valid(c: unknown): c is CatalogFile {
   const x = c as CatalogFile;
   return (
-    !!x?.model?.imageUrl &&
-    x.model.width > 0 &&
-    x.model.height > 0 &&
+    !!x &&
+    (x.model === undefined || (!!x.model.imageUrl && x.model.width > 0 && x.model.height > 0)) &&
     Array.isArray(x.products) &&
     x.products.length > 0 &&
     x.products.every(
@@ -39,8 +40,8 @@ function valid(c: unknown): c is CatalogFile {
         typeof p.title === 'string' &&
         typeof p.priceAmount === 'number' &&
         CATEGORIES.includes(p.category) &&
-        !!p.imageUrl &&
-        !!p.layerUrl,
+        (p.currency === undefined || CURRENCIES.includes(p.currency)) &&
+        !!p.imageUrl,
     ) &&
     new Set(x.products.map((p) => p.id)).size === x.products.length
   );
@@ -62,7 +63,7 @@ export async function loadCatalog(): Promise<'file' | 'dummy'> {
       id: p.id,
       title: p.title,
       priceAmount: p.priceAmount,
-      currency: 'USD',
+      currency: p.currency ?? 'USD',
       sourceName: p.sourceName,
       ...(p.sourceUrl ? { sourceUrl: p.sourceUrl } : {}),
       tradeType: p.tradeType,
@@ -70,14 +71,18 @@ export async function loadCatalog(): Promise<'file' | 'dummy'> {
       isDummy: p.isDummy ?? true,
       category: p.category,
       imageUrl: abs(p.imageUrl),
-      layerUrl: abs(p.layerUrl),
+      ...(p.boardImageUrl ? { boardImageUrl: abs(p.boardImageUrl) } : {}),
+      ...(p.layerUrl ? { layerUrl: abs(p.layerUrl) } : {}),
     }));
-    replaceCatalog(products, {
-      url: abs(json.model.imageUrl),
-      width: json.model.width,
-      height: json.model.height,
-      label: json.model.label ?? 'AI 생성 모델 · 샘플 상품',
-    });
+    replaceCatalog(
+      products,
+      json.model && {
+        url: abs(json.model.imageUrl),
+        width: json.model.width,
+        height: json.model.height,
+        label: json.model.label ?? 'AI 생성 모델 · 샘플 상품',
+      },
+    );
     return 'file';
   } catch {
     return 'dummy';

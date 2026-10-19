@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
-// Playwright 전용 브라우저 다운로드가 막힌 환경이라 시스템 Edge(Chromium)를 사용한다.
-// WebKit(Safari 엔진)은 이 구성으로 검증되지 않는다.
+// Windows 개발 PC는 Playwright 전용 브라우저 다운로드가 막혀 있어 시스템 Edge(Chromium)를 쓰고,
+// 맥미니는 설치된 Google Chrome을 쓴다 (PW_CHANNEL로 바꿀 수 있음). WebKit(Safari 엔진)은 검증되지 않는다.
 export default defineConfig({
   testDir: 'e2e',
   timeout: 60_000,
@@ -11,7 +11,7 @@ export default defineConfig({
   outputDir: 'e2e/.results',
   use: {
     baseURL: 'http://localhost:5174',
-    channel: 'msedge',
+    channel: process.env.PW_CHANNEL ?? (process.platform === 'win32' ? 'msedge' : 'chrome'),
     headless: true,
   },
   webServer: {

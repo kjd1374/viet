@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Category } from '../data/figure';
-import { formatPrice, MODEL, PRODUCT_BY_ID, type Product } from '../data/products';
+import { formatPrice, PRODUCT_BY_ID, type Product } from '../data/products';
 import { store } from '../store/instance';
 import { takeOff, visibleLayers, wear, type Outfit } from '../store/outfit';
 import { IconBack } from './Icons';
@@ -20,9 +20,14 @@ type Props = {
   onInfo: (productId: string) => void;
 };
 
+const SLOT_LABEL: Record<Category, string> = { top: '상의', bottom: '하의', dress: '원피스', outer: '아우터' };
+
+const boardImage = (p: Product) => p.boardImageUrl ?? p.imageUrl;
+
 /**
- * 코디: 보관함의 옷만 고정 모델에 레이어로 입힌다.
- * 모델 이미지는 한 번도 다시 그리지 않고, 슬롯별 투명 레이어만 교체한다 → 얼굴·체형·자세 고정, 교체 즉시 반영.
+ * 코디 보드: 보관함의 옷 상품컷을 자리(아우터 | 상의 / 하의, 또는 원피스)에 나란히 놓는다.
+ * 몸에 입히지 않으므로 어떤 상품 사진이든(토르소컷·바닥컷) 그대로 깔끔하게 보인다.
+ * 자리마다 독립된 요소라서 상의만 바꾸면 하의 카드는 그대로 있다.
  */
 export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
   const savedIds = useMemo(() => new Set(saved.map((p) => p.id)), [saved]);
@@ -33,11 +38,11 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
   }, [saved]);
   const [tab, setTab] = useState<Category>(() => TABS.find((t) => byCat[t.key].length)?.key ?? 'top');
 
-  // 보관함 옷의 레이어를 미리 받아 디코드 → 누르는 순간 바로 겹쳐진다
+  // 보관함 옷의 상품컷을 미리 받아 디코드 → 누르는 순간 바로 바뀐다
   useEffect(() => {
     for (const p of saved) {
       const img = new Image();
-      img.src = p.layerUrl;
+      img.src = boardImage(p);
       img.decode?.().catch(() => {});
     }
   }, [saved]);
@@ -45,6 +50,10 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
   const layers = visibleLayers(outfit, (id) => savedIds.has(id));
   const worn = layers.map((l) => PRODUCT_BY_ID.get(l.id)!);
   const total = worn.reduce((s, p) => s + p.priceAmount, 0);
+  const shown = new Map(layers.map((l) => [l.slot, PRODUCT_BY_ID.get(l.id)!]));
+  // 원피스를 입으면 상의·하의 자리를 원피스 한 칸이 차지한다. 아우터가 없으면 아우터 칸을 빼고 한 줄로
+  const hasOuter = shown.has('outer');
+  const slots: Category[] = [...(hasOuter ? (['outer'] as const) : []), ...(shown.has('dress') ? (['dress'] as const) : (['top', 'bottom'] as const))];
 
   const put = (p: Product) => store.setOutfit(wear(outfit, p));
   const current = TABS.find((t) => t.key === tab)!;
@@ -71,35 +80,41 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
         </div>
       ) : (
         <>
-          <div className="fit-stage">
-            <div className="fit-canvas" style={{ aspectRatio: `${MODEL.width} / ${MODEL.height}` }} data-testid="fit-canvas">
-              <img className="fit-layer" src={MODEL.url} alt="고정 모델" draggable={false} data-slot="model" />
-              {layers.map((l) => (
-                <img
-                  key={l.id}
-                  className="fit-layer enter"
-                  src={PRODUCT_BY_ID.get(l.id)!.layerUrl}
-                  alt=""
-                  draggable={false}
-                  data-slot={l.slot}
-                  data-product-id={l.id}
-                />
-              ))}
+          <div className="board-stage">
+            <div className={hasOuter ? 'board' : 'board single'} data-testid="outfit-board">
+              {slots.map((slot) => {
+                const p = shown.get(slot);
+                return p ? (
+                  <button
+                    key={slot}
+                    className={`board-card ${slot}`}
+                    onClick={() => onInfo(p.id)}
+                    aria-label={`${p.title} 구매 정보`}
+                    data-slot={slot}
+                    data-product-id={p.id}
+                  >
+                    <img key={p.id} className="enter" src={boardImage(p)} alt="" draggable={false} />
+                    <span className="board-cap">
+                      <span className="board-title">{p.title}</span>
+                      <b>{formatPrice(p)}</b>
+                    </span>
+                  </button>
+                ) : (
+                  <button key={slot} className={`board-card ${slot} empty`} onClick={() => setTab(slot)} data-slot={slot}>
+                    {SLOT_LABEL[slot]} 고르기
+                  </button>
+                );
+              })}
             </div>
-            <span className="badge-dummy">{MODEL.label}</span>
-            {worn.length > 0 && (
-              <ul className="worn" aria-label="입은 옷">
-                {worn.map((p) => (
-                  <li key={p.id}>
-                    <button className="worn-chip" onClick={() => onInfo(p.id)} aria-label={`${p.title} 구매 정보`}>
-                      <img src={p.imageUrl} alt="" width={30} height={40} />
-                      <span>{formatPrice(p)}</span>
-                    </button>
-                  </li>
-                ))}
-                {worn.length > 1 && <li className="worn-total">합계 {formatPrice({ ...worn[0], priceAmount: total })}</li>}
-              </ul>
-            )}
+            <div className="board-foot">
+              {worn.some((p) => p.isDummy) && <span className="badge-dummy">샘플 상품</span>}
+              {!hasOuter && byCat.outer.length > 0 && (
+                <button className="btn-text board-add" onClick={() => setTab('outer')}>
+                  + 아우터
+                </button>
+              )}
+              {worn.length > 0 && <b className="board-total">합계 {formatPrice({ ...worn[0], priceAmount: total })}</b>}
+            </div>
           </div>
 
           <div className="picker">
@@ -136,7 +151,7 @@ export function Styling({ saved, outfit, onBack, onDeck, onInfo }: Props) {
                       onClick={() => put(p)}
                       data-product-id={p.id}
                     >
-                      <img src={p.imageUrl} alt="" width={60} height={80} />
+                      <img src={boardImage(p)} alt="" width={60} height={80} />
                       <span className="pick-title">{p.title}</span>
                     </button>
                   ))}

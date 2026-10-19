@@ -1,5 +1,9 @@
 # viet — 가상 피팅 레이어 파이프라인 (맥미니 작업 환경)
 
+> **현재 방향 (2026-10-19 결정): 코디 보드.** 마네킹·모델에 옷을 입히는 방식(로컬 AI, GPT, AI 없는 종이 인형)은 모두
+> 실사용 품질에 못 미쳐 보류. 크롤링한 "옷만 찍힌 상품컷"을 그대로 카드로 놓고 아우터 | 상의 / 하의(또는 원피스)를 조합한다.
+> 아래 "코디 보드" 절부터 읽을 것. 그 아래 내용은 지금까지의 시험 기록.
+
 ## 작업 방식
 - 답변과 설명은 한국어로, 짧고 직접적으로. 결정된 사항은 옵션을 다시 나열하지 말고 바로 실행할 것.
 - 이상적인 결과보다 실제로 깨질 수 있는 지점(메모리, 디바이스, 품질)을 먼저 짚을 것.
@@ -162,6 +166,24 @@ PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 PYTORCH_MPS_LOW_WATERMARK_RATIO=0.5 \
   실패: ① 흰색·크림색 옷이 토르소와 색이 같아 같이 지워짐(t6617 흰 티 너덜너덜, t6679 세트의 크림 티 사라짐, d4555 흰 니트 토르소 못 찾음)
   ② 토르소 조각이 어깨에 조금 남음(t6575, d6502) ③ 긴소매는 아래로 곧게 내려와 마네킹 팔과 각도가 안 맞음 ④ 펼친 니트는 작고 높게 붙음.
 - 판단: 생성 AI는 필요 없지만, 토르소 컷을 안정적으로 처리하려면 옷 영역 분할 모델(예전 FashnHumanParser 같은 종류, CPU 1초 내외)이 필요할 가능성 큼.
+
+## 코디 보드 (2026-10-19, 현재 방향)
+- 사용자 판단: 종이 인형 방식(out/real-test3)은 "도저히 못 써먹겠다". 매번 AI 생성은 원치 않음. GPT 착용 품질도 기대 이하로 기억.
+  → 몸에 입히지 않는 코디 보드로 결정. 아우터를 상의 위에 겹친 모습은 못 보는 대신 옆 칸에 나란히 보여 줌.
+- 앱(src/components/Styling.tsx): 보드 = 아우터(왼쪽, 두 줄) | 상의(오른쪽 위) / 하의(오른쪽 아래). 원피스면 오른쪽 두 줄 한 칸.
+  아우터를 안 고르면 한 줄(가운데)로 줄이고 아래에 "+ 아우터". 빈 칸을 누르면 그 탭으로, 옷 카드를 누르면 구매 정보.
+  자리(slot)마다 key가 고정이라 상의만 바꾸면 하의 카드 DOM은 그대로. 고르기 줄의 썸네일도 상품컷(object-fit: contain, 흰 배경).
+- 데이터: Product에 boardImageUrl(상품컷, 없으면 imageUrl), currency(USD|KRW|VND, KRW는 "24,000원"), layerUrl은 선택.
+  catalog.json의 model은 이제 선택(없어도 됨).
+- 크롤링 → 앱 반영:
+  `cd ~/viet/factory && python3 crawl_cafe24.py --site https://classic-blanc.com --cat top=25 --cat bottom=58 --cat dress=26 --cat outer=57 --per 5 --out in-sample/real --source-name 클래식블랑`
+  `python3 publish_board.py --items in-sample/real/items.json` → public/catalog (탐색 카드 = 대표 모델컷, 보드 = 상품컷. 저장소에 안 올림)
+  `cd ~/viet && npm run dev` (node_modules 설치됨, 약 110MB)
+- 테스트: `npx tsc -p .`, `npx vitest run`(25개 통과), `npx playwright test e2e/styling.spec.ts`(4개 통과).
+  playwright.config.ts: 맥은 설치된 Google Chrome(channel chrome), Windows는 Edge. PW_CHANNEL로 바꿀 수 있음.
+  e2e는 docs/screenshots를 다시 그린다 → 바꾼 화면(40~44 styling)만 커밋하고 나머지는 git checkout으로 되돌릴 것.
+- **기존부터 실패하는 e2e 2개(맥 Chrome)**: mobile.spec "기기 저장 실패 → 되돌림 → 다시 시도", "안내 숨기기는 재접속 후 유지".
+  보드 변경 전 코드로도 똑같이 실패함을 확인. 스와이프 "왼쪽 스와이프 = 삭제"는 가끔 실패(재실행 시 통과).
 
 ## 실측 사이즈 기준 배치 (2026-10-19) — 사용자 요청: "사이즈 영역을 정하고 옷을 그 사이즈에 맞춰라"
 - 카페24 상세 페이지의 "사이즈 정보"(에디봇) 표가 HTML 글자로 있음 → crawl_cafe24.py가 파싱(총길이·어깨·가슴·소매·허리·엉덩이·허벅지·밑위·밑단, cm 단면).

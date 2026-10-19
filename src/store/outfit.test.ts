@@ -11,8 +11,8 @@ const all = () => true;
 const ids = (o: typeof EMPTY_OUTFIT, saved: (id: string) => boolean = all) => visibleLayers(o, saved).map((l) => `${l.slot}:${l.id}`);
 
 describe('더미 상품 분류', () => {
-  it('20개 모두 분류와 착용 레이어가 있고 상의·하의·원피스·아우터가 모두 있다', () => {
-    expect(PRODUCTS.every((p) => p.category && p.layerUrl.startsWith('data:image/svg+xml'))).toBe(true);
+  it('20개 모두 분류와 상품 이미지가 있고 상의·하의·원피스·아우터가 모두 있다', () => {
+    expect(PRODUCTS.every((p) => p.category && p.imageUrl.startsWith('data:image/svg+xml'))).toBe(true);
     const count = (c: string) => PRODUCTS.filter((p) => p.category === c).length;
     expect([count('top'), count('bottom'), count('dress'), count('outer')]).toEqual([8, 6, 2, 4]);
   });

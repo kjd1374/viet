@@ -2,13 +2,14 @@ import { CANVAS, CATEGORY_OF, layerSvg, modelSvg, type Category } from './figure
 import { garmentSvg, type GarmentKind, type Pattern } from './garments';
 
 export type TradeType = 'wholesale' | 'retail';
+export type Currency = 'USD' | 'KRW' | 'VND';
 
 export type Product = {
   id: string;
   imageUrl: string;
   title: string;
   priceAmount: number;
-  currency: 'USD';
+  currency: Currency;
   sourceName: string;
   sourceUrl?: string;
   tradeType: TradeType;
@@ -16,8 +17,10 @@ export type Product = {
   /** 실거래 상품이 아님 (더미·시험용). 화면에 표시한다. */
   isDummy: boolean;
   category: Category;
-  /** 고정 모델 캔버스에 정렬된 투명 착용 레이어. 실제 서비스에서는 AI 착용 결과에서 의류 영역만 잘라낸 PNG. */
-  layerUrl: string;
+  /** 코디 보드에 놓을 옷만 찍힌 상품컷(흰 배경). 없으면 imageUrl을 쓴다. */
+  boardImageUrl?: string;
+  /** (예전 방식) 고정 모델 캔버스에 정렬된 투명 착용 레이어. 코디 보드에서는 쓰지 않는다. */
+  layerUrl?: string;
 };
 
 type Seed = {
@@ -80,17 +83,20 @@ export const MODEL = { url: modelSvg(), width: CANVAS.w, height: CANVAS.h, label
  * 외부 카탈로그로 교체한다 (앱 렌더 전에 한 번).
  * 배열·맵을 제자리에서 바꾸므로 이를 가져다 쓰는 모듈은 그대로 동작한다.
  */
-export function replaceCatalog(products: Product[], model: typeof MODEL) {
+export function replaceCatalog(products: Product[], model?: typeof MODEL) {
   PRODUCTS.length = 0;
   PRODUCTS.push(...products);
   const map = PRODUCT_BY_ID as Map<string, Product>;
   map.clear();
   for (const p of products) map.set(p.id, p);
-  Object.assign(MODEL, model);
+  if (model) Object.assign(MODEL, model);
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-export function formatPrice(p: Product): string {
+const whole = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+export function formatPrice(p: Pick<Product, 'priceAmount' | 'currency'>): string {
+  if (p.currency === 'KRW') return `${whole.format(p.priceAmount)}원`;
+  if (p.currency === 'VND') return `${whole.format(p.priceAmount)}₫`;
   return usd.format(p.priceAmount);
 }
 
