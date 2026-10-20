@@ -3,31 +3,18 @@
 베트남 의류 판매자용 상품 정리 시제품. 상품 한 장을 보고 **왼쪽=삭제 / 오른쪽=보관 / 위=구매 정보 / 하단 버튼=보류**로 정리한다.
 기획: [PLAN.md](PLAN.md)
 
+현재 연결 범위·이번 검사 결과·다음 작업: [연결 확인과 다음 작업](docs/CURRENT-STATUS.md) (2026-10-19).
+
 > **MVP 범위**: 서버·로그인·실상품 데이터 없음. 선택 기록은 **이 브라우저(IndexedDB)에만** 저장되며 다른 기기와 동기화되지 않는다. 상품 20개는 모두 코드로 만든 더미(SVG)이고 가격은 USD 샘플 값이다.
 
 ## 실행
 
-```bash
-npm install
-```
-
-```bash
-npm run dev -- --host
-```
-
-- PC: http://localhost:5173
-- 같은 와이파이의 휴대폰: 터미널에 나오는 `Network` 주소 (예: `http://192.168.x.x:5173`). 안 열리면 Windows 방화벽에서 Node.js의 개인 네트워크 접근을 허용.
+Jarvis에서 **화면 준비 → 이 PC에서 화면 열기**를 사용한다. 맥은 실행 서버이며, 다른 PC의 브라우저에서 확인한다. 개발 서버용 `dev` 스크립트는 준비되어 있다.
 - 검증용 개발 모드: 주소 뒤에 `?dev` → 왼쪽 아래 `DEV` 패널에서 서버 지연(2초/6초), 서버 실패, 응답 유실, 오프라인, 기기 저장 실패를 주입하고 카드 전환 시간(p50/p95)을 본다.
 
 ## 테스트
 
-```bash
-npm test
-```
-
-```bash
-npm run test:e2e
-```
+Jarvis의 **테스트 실행**으로 검사한다. 아래는 저장소의 검사 구성 설명이며 이번 실행 결과는 [현재 상태](docs/CURRENT-STATUS.md)를 참고한다.
 
 - `npm test` — 저장·동기화·코디 규칙 단위 테스트 25개 (Vitest + fake-indexeddb)
 - `npm run test:e2e` — 브라우저 E2E 30개 (Playwright + **시스템 Edge**). 실제 터치 이벤트(CDP)로 스와이프하고 `docs/screenshots/`에 화면을 남긴다.
@@ -38,6 +25,8 @@ npm run test:e2e
 실제 사진으로 가는 방법과 위험: [docs/STYLING-FEASIBILITY.md](docs/STYLING-FEASIBILITY.md)
 
 ## 레이어 공장 (factory/)
+
+2026-10-09 로컬 피팅 환경 제거 기록 이후 전체 파이프라인의 실행 환경은 다시 검토해야 한다. GPT 생성 어댑터는 구현되어 있지만 외부 연동 성공은 이번에 확인하지 않았다. 아래 로컬 설치·초기 실험 내용은 참고 자료다.
 
 실제 상품 사진 → 고정 모델에 AI 착용(FASHN VTON v1.5) → 옷만 떼어낸 투명 PNG → `public/catalog/catalog.json`.
 앱은 이 파일이 있으면 더미 대신 그것을 읽는다 (`?catalog=dummy`로 더미 강제).
